@@ -1,0 +1,31 @@
+{
+  "font_family": null,
+  "font_size": 14.0,
+  "scrollback_lines": 10000,
+  "shell": null,
+  "shell_args": [],
+  "theme": "default-dark",
+  "keybindings": {
+    "ctrl+shift+c": "copy",
+    "ctrl+shift+v": "paste",
+    "ctrl+plus": "font-increase",
+    "ctrl+equals": "font-increase",
+    "ctrl+minus": "font-decrease",
+    "ctrl+0": "font-reset",
+    "shift+pageup": "scroll-page-up",
+    "shift+pagedown": "scroll-page-down",
+    "shift+home": "scroll-to-top",
+    "shift+end": "scroll-to-bottom",
+    "ctrl+shift+k": "clear",
+    "ctrl+shift+r": "reload-config",
+    "ctrl+shift+t": "new-tab",
+    "ctrl+shift+w": "close-tab",
+    "ctrl+shift+pagedown": "next-tab",
+    "ctrl+shift+pageup": "prev-tab",
+    "ctrl+r": "history-search"
+  },
+  "window": {
+    "width": 900.0,
+    "height": 560.0
+  }
+}
