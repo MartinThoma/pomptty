@@ -12,23 +12,28 @@ pub enum ThemeConfig {
 }
 
 impl Default for ThemeConfig {
+    /// The default is the Solarized Dark palette written out *in full*, so a
+    /// freshly generated `config.json` shows every color and invites editing
+    /// (rather than hiding them behind the name `"solarized-dark"`).
     fn default() -> Self {
-        ThemeConfig::Named("default-dark".to_owned())
+        ThemeConfig::Custom(Box::new(PaletteConfig::solarized_dark()))
     }
 }
 
 impl ThemeConfig {
-    /// Resolve to a concrete palette, falling back to `default-dark` for an
+    /// Resolve to a concrete palette, falling back to `solarized-dark` for an
     /// unknown builtin name (with a warning).
     pub fn palette(&self) -> PaletteConfig {
         match self {
             ThemeConfig::Custom(p) => (**p).clone(),
             ThemeConfig::Named(name) => match name.as_str() {
+                "solarized-dark" => PaletteConfig::solarized_dark(),
+                "solarized-light" => PaletteConfig::solarized_light(),
                 "default-light" => PaletteConfig::default_light(),
                 "default-dark" => PaletteConfig::default_dark(),
                 other => {
-                    log::warn!("unknown theme {other:?}, using \"default-dark\"");
-                    PaletteConfig::default_dark()
+                    log::warn!("unknown theme {other:?}, using \"solarized-dark\"");
+                    PaletteConfig::solarized_dark()
                 }
             },
         }
@@ -98,6 +103,56 @@ impl Default for PaletteConfig {
 }
 
 impl PaletteConfig {
+    /// Solarized Dark (Ethan Schoonover), the default theme.
+    fn solarized_dark() -> Self {
+        Self {
+            foreground: "#839496".into(), // base0
+            background: "#002b36".into(), // base03
+            cursor: Some("#93a1a1".into()),
+            black: "#073642".into(),          // base02
+            red: "#dc322f".into(),            // red
+            green: "#859900".into(),          // green
+            yellow: "#b58900".into(),         // yellow
+            blue: "#268bd2".into(),           // blue
+            magenta: "#d33682".into(),        // magenta
+            cyan: "#2aa198".into(),           // cyan
+            white: "#eee8d5".into(),          // base2
+            bright_black: "#002b36".into(),   // base03
+            bright_red: "#cb4b16".into(),     // orange
+            bright_green: "#586e75".into(),   // base01
+            bright_yellow: "#657b83".into(),  // base00
+            bright_blue: "#839496".into(),    // base0
+            bright_magenta: "#6c71c4".into(), // violet
+            bright_cyan: "#93a1a1".into(),    // base1
+            bright_white: "#fdf6e3".into(),   // base3
+        }
+    }
+
+    /// Solarized Light (Ethan Schoonover).
+    fn solarized_light() -> Self {
+        Self {
+            foreground: "#657b83".into(), // base00
+            background: "#fdf6e3".into(), // base3
+            cursor: Some("#586e75".into()),
+            black: "#073642".into(),
+            red: "#dc322f".into(),
+            green: "#859900".into(),
+            yellow: "#b58900".into(),
+            blue: "#268bd2".into(),
+            magenta: "#d33682".into(),
+            cyan: "#2aa198".into(),
+            white: "#eee8d5".into(),
+            bright_black: "#002b36".into(),
+            bright_red: "#cb4b16".into(),
+            bright_green: "#586e75".into(),
+            bright_yellow: "#657b83".into(),
+            bright_blue: "#839496".into(),
+            bright_magenta: "#6c71c4".into(),
+            bright_cyan: "#93a1a1".into(),
+            bright_white: "#fdf6e3".into(),
+        }
+    }
+
     fn default_dark() -> Self {
         Self {
             foreground: "#d8d8d8".into(),
@@ -214,14 +269,24 @@ mod tests {
 
     #[test]
     fn named_builtins_resolve() {
+        assert!(ThemeConfig::Named("solarized-dark".into()).is_dark());
+        assert!(!ThemeConfig::Named("solarized-light".into()).is_dark());
         assert!(ThemeConfig::Named("default-dark".into()).is_dark());
         assert!(!ThemeConfig::Named("default-light".into()).is_dark());
     }
 
     #[test]
-    fn unknown_name_falls_back_to_dark() {
+    fn default_theme_is_solarized_dark() {
+        assert_eq!(ThemeConfig::default().palette().background, "#002b36");
+    }
+
+    #[test]
+    fn unknown_name_falls_back_to_default() {
         let t = ThemeConfig::Named("nope".into());
-        assert_eq!(t.palette().background, "#181818");
+        assert_eq!(
+            t.palette().background,
+            PaletteConfig::solarized_dark().background
+        );
     }
 
     #[test]

@@ -31,8 +31,10 @@ pub struct Config {
     pub shell: Option<String>,
     /// Extra arguments passed to the shell.
     pub shell_args: Vec<String>,
-    /// Color theme: a builtin name (`"default-dark"`, `"default-light"`) or an
-    /// inline palette object.
+    /// Color theme: either an inline palette object (how the generated config
+    /// writes it — Solarized Dark, fully expanded and editable) or a builtin
+    /// name (`"solarized-dark"`, `"solarized-light"`, `"default-dark"`,
+    /// `"default-light"`).
     pub theme: ThemeConfig,
     /// Keyboard shortcuts, mapping a chord string (`"ctrl+shift+t"`) to an
     /// [`Action`].
@@ -154,5 +156,23 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(cfg.theme, ThemeConfig::Custom(_)));
+    }
+
+    #[test]
+    fn default_config_writes_theme_as_a_full_palette() {
+        // The generated config should show every color inline, not the name.
+        let json = serde_json::to_value(Config::default()).unwrap();
+        let theme = &json["theme"];
+        assert!(theme.is_object(), "theme should serialize as an object");
+        assert_eq!(theme["background"], "#002b36");
+        for key in ["foreground", "red", "green", "blue", "bright_white"] {
+            assert!(theme.get(key).is_some(), "missing color {key}");
+        }
+    }
+
+    #[test]
+    fn named_theme_still_accepted() {
+        let cfg: Config = serde_json::from_str(r#"{ "theme": "solarized-light" }"#).unwrap();
+        assert!(!cfg.theme.is_dark());
     }
 }

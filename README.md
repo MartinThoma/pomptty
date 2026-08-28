@@ -11,7 +11,7 @@ Milestone 1 — **single-pane MVP**:
 
 - one shell pane, GPU-rendered
 - JSON config with live reload (theme, font size, shell, keybindings, window size)
-- builtin `default-dark` / `default-light` themes, or an inline palette
+- builtin themes (`solarized-dark` (default), `solarized-light`, `default-dark`, `default-light`), or an inline palette
 - configurable app keybindings (font zoom, scrollback, clear, reload)
 - mouse selection + copy/paste (`Ctrl+Shift+C` / `Ctrl+Shift+V`)
 
@@ -48,24 +48,33 @@ See [`config.example.json`](config.example.json) for every field.
 | `scrollback_lines` | Reserved; wired to the backend in a later milestone. |
 | `shell` | Shell to launch, or `null` for `$SHELL`. |
 | `shell_args` | Extra arguments for the shell. |
-| `theme` | `"default-dark"`, `"default-light"`, or an inline palette object. |
+| `theme` | An inline palette object, or a builtin name. |
 | `keybindings` | Map of chord → action (see below). |
 | `window` | Initial `width` / `height` in logical pixels. |
 
-### Inline theme
+### Theme
+
+The generated config writes the **full Solarized Dark palette inline** so every
+color is right there to tweak:
 
 ```json
 "theme": {
-  "background": "#1e1e2e",
-  "foreground": "#cdd6f4",
-  "red": "#f38ba8",
-  "green": "#a6e3a1"
+  "foreground": "#839496",
+  "background": "#002b36",
+  "cursor": "#93a1a1",
+  "black": "#073642",
+  "red": "#dc322f",
+  "...": "..."
 }
 ```
 
-Any of the 18 colors (`foreground`, `background`, `black`…`white`,
-`bright_black`…`bright_white`) may be given; the rest fall back to the dark
-theme.
+Editable keys: `foreground`, `background`, `cursor`, and the 16 ANSI colors
+`black`…`white` / `bright_black`…`bright_white`. Any subset is fine — omitted
+colors fall back to Solarized Dark.
+
+To use a different builtin, replace the whole object with its name:
+`"solarized-dark"`, `"solarized-light"`, `"default-dark"`, or `"default-light"`.
+Deleting `config.json` regenerates the default (expanded Solarized Dark).
 
 ### Keybindings
 
