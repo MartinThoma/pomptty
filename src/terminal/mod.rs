@@ -1,7 +1,5 @@
 //! One terminal pane: a PTY-backed `egui_term` session plus its display state.
-//!
-//! Milestone 1 renders exactly one of these, but the app already owns a `Vec`
-//! of them so the tabs milestone is additive.
+//! The app owns a `Vec` of these, one per tab.
 
 use std::sync::mpsc::Sender;
 

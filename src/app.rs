@@ -11,7 +11,7 @@ use notify::{RecursiveMode, Watcher};
 use crate::config::Config;
 use crate::config::keybindings::{Action, Chord};
 use crate::terminal::{TabId, TerminalTab};
-use crate::ui::chrome::{ChromeAction, TopBar};
+use crate::ui::chrome::{ChromeAction, TabStrip};
 
 /// How many lines a "page" scroll moves. A rough constant is fine — the backend
 /// clamps at the ends of the scrollback.
@@ -29,13 +29,10 @@ pub struct PompttyApp {
 
     tabs: Vec<TerminalTab>,
     active: usize,
-    /// Next id to hand out — reserved for tab creation in the tabs milestone.
-    #[allow(dead_code)]
+    /// Next id to hand out to a new tab.
     next_tab_id: TabId,
 
-    /// Cloned into each new tab so its PTY can post events back — reserved for
-    /// tab creation in the tabs milestone.
-    #[allow(dead_code)]
+    /// Cloned into each new tab so its PTY can post events back.
     pty_events_tx: Sender<(TabId, PtyEvent)>,
     pty_events_rx: Receiver<(TabId, PtyEvent)>,
 
@@ -44,6 +41,8 @@ pub struct PompttyApp {
 
     bindings: Vec<(Chord, Action)>,
     toast: Option<(String, Instant)>,
+    /// The window title we last pushed, to avoid redundant viewport commands.
+    title_shown: String,
 }
 
 impl PompttyApp {
@@ -83,6 +82,7 @@ impl PompttyApp {
             config_reload_rx,
             _config_watcher: watcher,
             toast: None,
+            title_shown: String::new(),
         };
         if let Some(err) = config_error {
             app.set_toast(format!("Config error (using defaults): {err}"));
@@ -94,8 +94,73 @@ impl PompttyApp {
         self.toast = Some((msg.into(), Instant::now()));
     }
 
+    /// Push the active tab's title to the window title bar, if it changed.
+    fn sync_window_title(&mut self, ctx: &egui::Context) {
+        let want = match self.tabs.get(self.active) {
+            Some(tab) if !tab.title.is_empty() => format!("{} — pomptty", tab.title),
+            _ => "pomptty".to_owned(),
+        };
+        if want != self.title_shown {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(want.clone()));
+            self.title_shown = want;
+        }
+    }
+
     fn active_tab(&mut self) -> &mut TerminalTab {
         &mut self.tabs[self.active]
+    }
+
+    /// Open a new tab running the configured shell and switch to it.
+    fn spawn_tab(&mut self, ctx: &egui::Context) {
+        match TerminalTab::new(
+            self.next_tab_id,
+            ctx.clone(),
+            self.pty_events_tx.clone(),
+            self.config.shell.clone(),
+            self.config.shell_args.clone(),
+        ) {
+            Ok(tab) => {
+                log::info!("opened tab {}", tab.id);
+                self.tabs.push(tab);
+                self.active = self.tabs.len() - 1;
+                self.next_tab_id += 1;
+            }
+            Err(e) => self.set_toast(format!("Could not open a new tab: {e:#}")),
+        }
+    }
+
+    /// Close tab `idx`. Closing the last tab quits the app.
+    fn close_tab(&mut self, idx: usize, ctx: &egui::Context) {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        let closed = self.tabs.remove(idx); // Drop shuts the PTY down.
+        log::info!("closed tab {}", closed.id);
+        if self.tabs.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        if self.active > idx {
+            self.active -= 1;
+        }
+        self.active = self.active.min(self.tabs.len() - 1);
+    }
+
+    /// Move focus `delta` tabs, wrapping around.
+    fn focus_delta(&mut self, delta: isize) {
+        let n = self.tabs.len();
+        if n <= 1 {
+            return;
+        }
+        self.active = (self.active as isize + delta).rem_euclid(n as isize) as usize;
+    }
+
+    /// Jump to 1-based tab `n`; values past the end select the last tab.
+    fn goto_tab(&mut self, n: u8) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        self.active = (n as usize).saturating_sub(1).min(self.tabs.len() - 1);
     }
 
     /// Drain PTY events. Returns `true` if the app should close.
@@ -172,14 +237,13 @@ impl PompttyApp {
             Action::ScrollToBottom => self.active_tab().scroll(-SCROLL_TO_EDGE),
             Action::Clear => self.active_tab().write(vec![0x0c]), // Ctrl+L
             Action::ReloadConfig => self.reload_config(ctx),
+            Action::NewTab => self.spawn_tab(ctx),
+            Action::CloseTab => self.close_tab(self.active, ctx),
+            Action::NextTab => self.focus_delta(1),
+            Action::PrevTab => self.focus_delta(-1),
+            Action::GotoTab(n) => self.goto_tab(n),
             // Inert in this milestone (see `Action::is_active`).
-            Action::Copy
-            | Action::Paste
-            | Action::NewTab
-            | Action::CloseTab
-            | Action::NextTab
-            | Action::PrevTab
-            | Action::HistorySearch => {}
+            Action::Copy | Action::Paste | Action::HistorySearch => {}
         }
     }
 }
@@ -193,25 +257,40 @@ impl eframe::App for PompttyApp {
         }
         self.pump_config_reload(&ctx);
         self.handle_bindings(&ctx);
+        if self.tabs.is_empty() {
+            return;
+        }
 
         let palette = self.config.theme.palette();
         let accent = color32(&palette.blue);
         let muted = color32(&palette.bright_black);
-        let title = self.tabs[self.active].title.clone();
 
-        match (TopBar {
-            title: &title,
+        let titles: Vec<String> = self.tabs.iter().map(|t| t.title.clone()).collect();
+        let chrome_action = TabStrip {
+            titles: &titles,
+            active: self.active,
             accent,
             muted,
-            subtitle: None,
-        })
-        .show(ui)
-        {
+        }
+        .show(ui);
+        match chrome_action {
+            ChromeAction::NewTab => self.spawn_tab(&ctx),
+            ChromeAction::SelectTab(i) => {
+                if i < self.tabs.len() {
+                    self.active = i;
+                }
+            }
+            ChromeAction::CloseTab(i) => self.close_tab(i, &ctx),
             ChromeAction::OpenSearch => {
                 self.set_toast("History search (Ctrl+R) is not implemented yet");
             }
             ChromeAction::None => {}
         }
+        if self.tabs.is_empty() {
+            return;
+        }
+        self.active = self.active.min(self.tabs.len() - 1);
+        self.sync_window_title(&ctx);
 
         egui::CentralPanel::default().show(ui, |ui| {
             let tab = &mut self.tabs[self.active];

@@ -7,16 +7,16 @@ built in Rust on [`egui`](https://github.com/emilk/egui) +
 
 ## Status
 
-Milestone 1 — **single-pane MVP**:
-
-- one shell pane, GPU-rendered
+- GPU-rendered shell panes with **tabs** (keyboard + mouse; window title follows
+  the active tab)
 - JSON config with live reload (theme, font size, shell, keybindings, window size)
-- builtin themes (`solarized-dark` (default), `solarized-light`, `default-dark`, `default-light`), or an inline palette
-- configurable app keybindings (font zoom, scrollback, clear, reload)
+- builtin themes (`solarized-dark` (default), `solarized-light`, `default-dark`,
+  `default-light`), or an inline palette
+- configurable app keybindings (tabs, font zoom, scrollback, clear, reload)
 - mouse selection + copy/paste (`Ctrl+Shift+C` / `Ctrl+Shift+V`)
 
-Planned next: tabs (M2), then persistent command history with `Ctrl+R` fuzzy
-search backed by SQLite and OSC 133 shell integration (M3).
+See [ROADMAP.md](ROADMAP.md) for what's done and what's next (up next: persistent
+command history with `Ctrl+R` fuzzy search, M3).
 
 ## Build & run
 
@@ -25,6 +25,16 @@ Needs a current Rust toolchain (1.92+). If you use `rustup`:
 ```sh
 . "$HOME/.cargo/env"   # if ~/.cargo/bin isn't already on PATH
 cargo run --release
+```
+
+Or use the Makefile (it puts `~/.cargo/bin` on `PATH` for you):
+
+```sh
+make run       # debug build + run
+make build     # debug build
+make release   # optimized build
+make test      # test suite
+make lint      # rustfmt --check + clippy
 ```
 
 ## Configuration
@@ -91,5 +101,11 @@ Chords look like `ctrl+shift+t`, `ctrl+plus`, `shift+pageup`. Modifiers:
 | `scroll-to-top` / `scroll-to-bottom` | `shift+home` / `shift+end` | |
 | `clear` | `ctrl+shift+k` | sends `Ctrl+L` to the shell |
 | `reload-config` | `ctrl+shift+r` | |
-| `new-tab` / `close-tab` / `next-tab` / `prev-tab` | `ctrl+shift+t` / `w` / `pagedown` / `pageup` | reserved for M2 |
+| `new-tab` | `ctrl+shift+t` | |
+| `close-tab` | `ctrl+shift+w` | closing the last tab quits |
+| `next-tab` / `prev-tab` | `ctrl+tab` / `ctrl+shift+tab` (also `ctrl+shift+pagedown` / `pageup`) | wraps around |
+| `{ "goto-tab": N }` | `ctrl+1` … `ctrl+9` | jump to tab N; `9` = last tab |
 | `history-search` | `ctrl+r` | reserved for M3 (passed through to the shell for now) |
+
+Tabs can also be managed with the mouse: click a tab to focus it, click `✕` or
+middle-click to close, `+` to open a new one.

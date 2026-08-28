@@ -25,14 +25,13 @@ pub enum Action {
     ScrollToBottom,
     Clear,
     ReloadConfig,
-    /// New tab — reserved; wired up in the tabs milestone.
     NewTab,
-    /// Close tab — reserved.
     CloseTab,
-    /// Next tab — reserved.
     NextTab,
-    /// Previous tab — reserved.
     PrevTab,
+    /// Jump to tab N (1-based); a value past the last tab jumps to the last.
+    /// In JSON: `{ "goto-tab": 3 }`.
+    GotoTab(u8),
     /// Open the `Ctrl+R` history search — reserved; wired up in the history
     /// milestone. Until then the binding is inert and the keystroke is passed
     /// through to the shell.
@@ -47,13 +46,7 @@ impl Action {
             self,
             // Copy/Paste are handled inside the terminal widget itself, so the
             // app layer leaves those keystrokes alone.
-            Action::Copy
-                | Action::Paste
-                | Action::NewTab
-                | Action::CloseTab
-                | Action::NextTab
-                | Action::PrevTab
-                | Action::HistorySearch
+            Action::Copy | Action::Paste | Action::HistorySearch
         )
     }
 }
@@ -195,6 +188,17 @@ impl Default for KeyBindings {
             ("ctrl+shift+w", Action::CloseTab),
             ("ctrl+shift+pagedown", Action::NextTab),
             ("ctrl+shift+pageup", Action::PrevTab),
+            ("ctrl+tab", Action::NextTab),
+            ("ctrl+shift+tab", Action::PrevTab),
+            ("ctrl+1", Action::GotoTab(1)),
+            ("ctrl+2", Action::GotoTab(2)),
+            ("ctrl+3", Action::GotoTab(3)),
+            ("ctrl+4", Action::GotoTab(4)),
+            ("ctrl+5", Action::GotoTab(5)),
+            ("ctrl+6", Action::GotoTab(6)),
+            ("ctrl+7", Action::GotoTab(7)),
+            ("ctrl+8", Action::GotoTab(8)),
+            ("ctrl+9", Action::GotoTab(9)),
             ("ctrl+r", Action::HistorySearch),
         ];
         KeyBindings(
@@ -245,5 +249,21 @@ mod tests {
         let text = serde_json::to_string(&kb).unwrap();
         let back: KeyBindings = serde_json::from_str(&text).unwrap();
         assert_eq!(back.0, kb.0);
+    }
+
+    #[test]
+    fn goto_tab_serializes_as_object() {
+        let json = serde_json::to_string(&Action::GotoTab(3)).unwrap();
+        assert_eq!(json, r#"{"goto-tab":3}"#);
+        let back: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, Action::GotoTab(3));
+    }
+
+    #[test]
+    fn tab_actions_are_active() {
+        assert!(Action::NewTab.is_active());
+        assert!(Action::NextTab.is_active());
+        assert!(Action::GotoTab(2).is_active());
+        assert!(!Action::HistorySearch.is_active());
     }
 }
