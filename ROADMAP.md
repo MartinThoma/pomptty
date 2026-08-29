@@ -22,6 +22,7 @@ Feature tracker. `[x]` done · `[~]` partial · `[ ]` not started.
 - [x] `Vec<TerminalTab>` + active index + monotonic `TabId`
 - [x] new / close / next / prev tab (keyboard + chrome)
 - [x] `ctrl+1..9` jump to tab N (9 = last)
+- [x] keybindings layer on defaults (new defaults appear automatically; `"disabled"` to suppress)
 - [x] tab strip UI: pills, per-tab title (OSC 0/2), close button, middle-click close
 - [x] `+` new-tab button
 - [x] window title follows the active tab
@@ -30,7 +31,7 @@ Feature tracker. `[x]` done · `[~]` partial · `[ ]` not started.
 - [ ] custom window decorations (frameless + integrated title/tab bar, Chrome-style;
       window drag region, min/max/close buttons, resize borders)
 - [ ] new tab inherits the active tab's working directory (needs OSC 7 — see M3)
-- [ ] "close tab" confirmation when a child process is still running
+- [x] "close tab" confirmation when a child process is still running
 
 ## M3 — command history + `Ctrl+R`
 

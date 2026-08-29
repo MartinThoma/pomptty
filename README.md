@@ -88,8 +88,14 @@ Deleting `config.json` regenerates the default (expanded Solarized Dark).
 
 ### Keybindings
 
-Chords look like `ctrl+shift+t`, `ctrl+plus`, `shift+pageup`. Modifiers:
-`ctrl`, `shift`, `alt`, `super`.
+`"keybindings"` maps a chord string to an action name. Chords look like
+`ctrl+shift+t`, `ctrl+plus`, `shift+pageup`; modifiers are `ctrl`, `shift`,
+`alt`, `super`.
+
+Your `keybindings` block is **layered on the built-in defaults** — an entry
+overrides or adds a chord, and new default shortcuts in a future version appear
+automatically. To turn a default off, bind it to `"disabled"`
+(e.g. `"ctrl+r": "disabled"`).
 
 | Action | Default | Notes |
 |---|---|---|
@@ -104,8 +110,13 @@ Chords look like `ctrl+shift+t`, `ctrl+plus`, `shift+pageup`. Modifiers:
 | `new-tab` | `ctrl+shift+t` | |
 | `close-tab` | `ctrl+shift+w` | closing the last tab quits |
 | `next-tab` / `prev-tab` | `ctrl+tab` / `ctrl+shift+tab` (also `ctrl+shift+pagedown` / `pageup`) | wraps around |
-| `{ "goto-tab": N }` | `ctrl+1` … `ctrl+9` | jump to tab N; `9` = last tab |
+| `goto-tab-1` … `goto-tab-9` | `ctrl+1` … `ctrl+9` | jump to that tab; `goto-tab-9` = last tab |
 | `history-search` | `ctrl+r` | reserved for M3 (passed through to the shell for now) |
+| `disabled` | — | suppresses a default binding |
 
 Tabs can also be managed with the mouse: click a tab to focus it, click `✕` or
 middle-click to close, `+` to open a new one.
+
+Closing a tab that still has a process running in it (an editor, `ssh`, a build)
+pops up a confirmation first. If that process finishes while the prompt is open,
+the tab closes as originally asked.

@@ -40,6 +40,9 @@ pub struct PompttyApp {
     _config_watcher: Option<notify::RecommendedWatcher>,
 
     bindings: Vec<(Chord, Action)>,
+    /// A tab whose close is waiting on the "a process is still running"
+    /// confirmation, identified by id so a shifting `Vec` can't misfire it.
+    pending_close: Option<TabId>,
     toast: Option<(String, Instant)>,
     /// The window title we last pushed, to avoid redundant viewport commands.
     title_shown: String,
@@ -81,6 +84,7 @@ impl PompttyApp {
             pty_events_rx,
             config_reload_rx,
             _config_watcher: watcher,
+            pending_close: None,
             toast: None,
             title_shown: String::new(),
         };
@@ -129,6 +133,16 @@ impl PompttyApp {
         }
     }
 
+    /// Close tab `idx`, but if a process is still running in it, raise the
+    /// confirmation dialog instead of closing right away.
+    fn request_close_tab(&mut self, idx: usize, ctx: &egui::Context) {
+        match self.tabs.get(idx) {
+            Some(tab) if tab.has_running_child() => self.pending_close = Some(tab.id),
+            Some(_) => self.close_tab(idx, ctx),
+            None => {}
+        }
+    }
+
     /// Close tab `idx`. Closing the last tab quits the app.
     fn close_tab(&mut self, idx: usize, ctx: &egui::Context) {
         if idx >= self.tabs.len() {
@@ -144,6 +158,59 @@ impl PompttyApp {
             self.active -= 1;
         }
         self.active = self.active.min(self.tabs.len() - 1);
+    }
+
+    /// Draw the "a process is still running" dialog for `self.pending_close`
+    /// and act on the user's choice. The tab is looked up by id each frame, so
+    /// it is fine if it disappeared (its shell exited) while the dialog was up.
+    fn show_close_confirmation(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.pending_close else { return };
+        let Some(idx) = self.tabs.iter().position(|t| t.id == id) else {
+            self.pending_close = None;
+            return;
+        };
+        // The process may have finished (either between the keystroke and this
+        // first frame, or while the dialog sat open). Nothing left to warn
+        // about, so just carry out the close the user asked for.
+        if !self.tabs[idx].has_running_child() {
+            self.pending_close = None;
+            self.close_tab(idx, ctx);
+            return;
+        }
+        let title = self.tabs[idx].title.clone();
+
+        let mut close = false;
+        let mut cancel = false;
+        let modal = egui::Modal::new(egui::Id::new("pomptty_confirm_close")).show(ctx, |ui| {
+            ui.set_max_width(360.0);
+            ui.heading("Close this tab?");
+            ui.add_space(6.0);
+            let what = if title.is_empty() {
+                "A process is still running in this tab.".to_owned()
+            } else {
+                format!("“{title}” is still running in this tab.")
+            };
+            ui.label(format!("{what} Closing it will end that process."));
+            ui.add_space(12.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Close tab").clicked() {
+                    close = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+        });
+
+        if close {
+            self.pending_close = None;
+            self.close_tab(idx, ctx);
+        } else if cancel || modal.should_close() {
+            self.pending_close = None;
+        } else {
+            // Poll so the dialog can notice the process finishing on its own.
+            ctx.request_repaint_after(Duration::from_millis(500));
+        }
     }
 
     /// Move focus `delta` tabs, wrapping around.
@@ -238,12 +305,14 @@ impl PompttyApp {
             Action::Clear => self.active_tab().write(vec![0x0c]), // Ctrl+L
             Action::ReloadConfig => self.reload_config(ctx),
             Action::NewTab => self.spawn_tab(ctx),
-            Action::CloseTab => self.close_tab(self.active, ctx),
+            Action::CloseTab => self.request_close_tab(self.active, ctx),
             Action::NextTab => self.focus_delta(1),
             Action::PrevTab => self.focus_delta(-1),
             Action::GotoTab(n) => self.goto_tab(n),
-            // Inert in this milestone (see `Action::is_active`).
-            Action::Copy | Action::Paste | Action::HistorySearch => {}
+            // Inert here: handled by the terminal widget, reserved for a later
+            // milestone, or filtered out before dispatch (see `Action::is_active`
+            // and `KeyBindings::compile`).
+            Action::Copy | Action::Paste | Action::HistorySearch | Action::Disabled => {}
         }
     }
 }
@@ -256,21 +325,22 @@ impl eframe::App for PompttyApp {
             return;
         }
         self.pump_config_reload(&ctx);
-        self.handle_bindings(&ctx);
+        // While the close-confirmation dialog is up, the keyboard belongs to it.
+        if self.pending_close.is_none() {
+            self.handle_bindings(&ctx);
+        }
         if self.tabs.is_empty() {
             return;
         }
 
         let palette = self.config.theme.palette();
-        let accent = color32(&palette.blue);
-        let muted = color32(&palette.bright_black);
-
         let titles: Vec<String> = self.tabs.iter().map(|t| t.title.clone()).collect();
         let chrome_action = TabStrip {
             titles: &titles,
             active: self.active,
-            accent,
-            muted,
+            fg: color32(&palette.foreground),
+            bg: color32(&palette.background),
+            accent: color32(&palette.blue),
         }
         .show(ui);
         match chrome_action {
@@ -280,7 +350,7 @@ impl eframe::App for PompttyApp {
                     self.active = i;
                 }
             }
-            ChromeAction::CloseTab(i) => self.close_tab(i, &ctx),
+            ChromeAction::CloseTab(i) => self.request_close_tab(i, &ctx),
             ChromeAction::OpenSearch => {
                 self.set_toast("History search (Ctrl+R) is not implemented yet");
             }
@@ -292,10 +362,17 @@ impl eframe::App for PompttyApp {
         self.active = self.active.min(self.tabs.len() - 1);
         self.sync_window_title(&ctx);
 
+        if self.pending_close.is_some() {
+            self.show_close_confirmation(&ctx);
+            if self.tabs.is_empty() {
+                return;
+            }
+        }
+
         egui::CentralPanel::default().show(ui, |ui| {
             let tab = &mut self.tabs[self.active];
             let view = TerminalView::new(ui, &mut tab.backend)
-                .set_focus(true)
+                .set_focus(self.pending_close.is_none())
                 .set_theme(self.theme.clone())
                 .set_font(TerminalFont::new(FontSettings {
                     font_type: egui::FontId::monospace(self.font_size),

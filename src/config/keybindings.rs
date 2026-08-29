@@ -5,14 +5,17 @@
 //! keystrokes and terminal-level shortcuts such as copy/paste are handled by the
 //! terminal widget itself.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use egui::{Key, Modifiers};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// Something the app can do in response to a shortcut.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+///
+/// Serialized as a kebab-case string (`"new-tab"`, `"font-increase"`, …);
+/// [`Action::GotoTab`] round-trips as `"goto-tab-1"` … `"goto-tab-9"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Copy,
     Paste,
@@ -30,15 +33,64 @@ pub enum Action {
     NextTab,
     PrevTab,
     /// Jump to tab N (1-based); a value past the last tab jumps to the last.
-    /// In JSON: `{ "goto-tab": 3 }`.
+    /// In the config: `"goto-tab-3"`.
     GotoTab(u8),
     /// Open the `Ctrl+R` history search — reserved; wired up in the history
     /// milestone. Until then the binding is inert and the keystroke is passed
     /// through to the shell.
     HistorySearch,
+    /// Turn a default binding off. Put `"<chord>": "disabled"` in the config to
+    /// suppress a shortcut that would otherwise come from the defaults.
+    Disabled,
 }
 
 impl Action {
+    fn as_str(self) -> Cow<'static, str> {
+        match self {
+            Action::Copy => "copy".into(),
+            Action::Paste => "paste".into(),
+            Action::FontIncrease => "font-increase".into(),
+            Action::FontDecrease => "font-decrease".into(),
+            Action::FontReset => "font-reset".into(),
+            Action::ScrollPageUp => "scroll-page-up".into(),
+            Action::ScrollPageDown => "scroll-page-down".into(),
+            Action::ScrollToTop => "scroll-to-top".into(),
+            Action::ScrollToBottom => "scroll-to-bottom".into(),
+            Action::Clear => "clear".into(),
+            Action::ReloadConfig => "reload-config".into(),
+            Action::NewTab => "new-tab".into(),
+            Action::CloseTab => "close-tab".into(),
+            Action::NextTab => "next-tab".into(),
+            Action::PrevTab => "prev-tab".into(),
+            Action::GotoTab(n) => format!("goto-tab-{n}").into(),
+            Action::HistorySearch => "history-search".into(),
+            Action::Disabled => "disabled".into(),
+        }
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "copy" => Action::Copy,
+            "paste" => Action::Paste,
+            "font-increase" => Action::FontIncrease,
+            "font-decrease" => Action::FontDecrease,
+            "font-reset" => Action::FontReset,
+            "scroll-page-up" => Action::ScrollPageUp,
+            "scroll-page-down" => Action::ScrollPageDown,
+            "scroll-to-top" => Action::ScrollToTop,
+            "scroll-to-bottom" => Action::ScrollToBottom,
+            "clear" => Action::Clear,
+            "reload-config" => Action::ReloadConfig,
+            "new-tab" => Action::NewTab,
+            "close-tab" => Action::CloseTab,
+            "next-tab" => Action::NextTab,
+            "prev-tab" => Action::PrevTab,
+            "history-search" => Action::HistorySearch,
+            "disabled" => Action::Disabled,
+            other => Action::GotoTab(other.strip_prefix("goto-tab-")?.parse().ok()?),
+        })
+    }
+
     /// Whether this action does something in the current milestone. Inert
     /// actions are still parsed and stored, but do not consume the keystroke.
     pub fn is_active(self) -> bool {
@@ -46,8 +98,21 @@ impl Action {
             self,
             // Copy/Paste are handled inside the terminal widget itself, so the
             // app layer leaves those keystrokes alone.
-            Action::Copy | Action::Paste | Action::HistorySearch
+            Action::Copy | Action::Paste | Action::HistorySearch | Action::Disabled
         )
+    }
+}
+
+impl Serialize for Action {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Action {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Action::parse(&s).ok_or_else(|| D::Error::custom(format!("unknown action {s:?}")))
     }
 }
 
@@ -155,14 +220,31 @@ impl KeyBindings {
         self.0.get(chord).copied()
     }
 
-    /// Parse every binding, returning `(Chord, Action)` pairs and logging (not
-    /// failing on) any malformed chord strings.
-    pub fn compile(&self) -> Vec<(Chord, Action)> {
-        let mut out = Vec::with_capacity(self.0.len());
+    /// The effective binding table: the built-in defaults, with the config's
+    /// entries layered on top. A config entry overrides or adds a chord;
+    /// `Action::Disabled` removes a default. This means new default shortcuts in
+    /// a future version show up automatically without regenerating `config.json`.
+    pub fn merged(&self) -> BTreeMap<String, Action> {
+        let mut merged = Self::default().0;
         for (chord, action) in &self.0 {
+            if *action == Action::Disabled {
+                merged.remove(chord);
+            } else {
+                merged.insert(chord.clone(), *action);
+            }
+        }
+        merged
+    }
+
+    /// Parse the [merged](Self::merged) bindings into `(Chord, Action)` pairs,
+    /// logging (not failing on) any malformed chord strings.
+    pub fn compile(&self) -> Vec<(Chord, Action)> {
+        let merged = self.merged();
+        let mut out = Vec::with_capacity(merged.len());
+        for (chord, action) in &merged {
             match parse_chord(chord) {
                 Ok(c) => out.push((c, *action)),
-                Err(e) => log::warn!("ignoring keybinding: {e}"),
+                Err(e) => log::warn!("ignoring keybinding {chord:?}: {e}"),
             }
         }
         out
@@ -252,11 +334,21 @@ mod tests {
     }
 
     #[test]
-    fn goto_tab_serializes_as_object() {
-        let json = serde_json::to_string(&Action::GotoTab(3)).unwrap();
-        assert_eq!(json, r#"{"goto-tab":3}"#);
-        let back: Action = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, Action::GotoTab(3));
+    fn actions_round_trip_as_strings() {
+        for a in [
+            Action::NewTab,
+            Action::FontIncrease,
+            Action::GotoTab(3),
+            Action::Disabled,
+        ] {
+            let json = serde_json::to_string(&a).unwrap();
+            assert!(json.starts_with('"'), "{a:?} should serialize as a string");
+            assert_eq!(serde_json::from_str::<Action>(&json).unwrap(), a);
+        }
+        assert_eq!(
+            serde_json::to_string(&Action::GotoTab(3)).unwrap(),
+            r#""goto-tab-3""#
+        );
     }
 
     #[test]
@@ -265,5 +357,35 @@ mod tests {
         assert!(Action::NextTab.is_active());
         assert!(Action::GotoTab(2).is_active());
         assert!(!Action::HistorySearch.is_active());
+    }
+
+    #[test]
+    fn goto_tab_bindings_exist_by_default() {
+        let compiled = KeyBindings::default().compile();
+        for n in 1..=9u8 {
+            assert!(
+                compiled.iter().any(|(_, a)| *a == Action::GotoTab(n)),
+                "missing default binding for goto-tab {n}"
+            );
+        }
+    }
+
+    #[test]
+    fn partial_config_keeps_defaults() {
+        // A config that only rebinds one thing still gets every default.
+        let kb: KeyBindings = serde_json::from_str(r#"{ "ctrl+shift+e": "new-tab" }"#).unwrap();
+        let merged = kb.merged();
+        assert_eq!(merged.get("ctrl+shift+e"), Some(&Action::NewTab));
+        assert_eq!(merged.get("ctrl+1"), Some(&Action::GotoTab(1)));
+        assert_eq!(merged.get("ctrl+shift+t"), Some(&Action::NewTab));
+    }
+
+    #[test]
+    fn override_and_disable() {
+        let kb: KeyBindings =
+            serde_json::from_str(r#"{ "ctrl+shift+t": "clear", "ctrl+r": "disabled" }"#).unwrap();
+        let merged = kb.merged();
+        assert_eq!(merged.get("ctrl+shift+t"), Some(&Action::Clear));
+        assert_eq!(merged.get("ctrl+r"), None);
     }
 }
