@@ -1,5 +1,7 @@
 # pomptty
 
+[![CI](https://github.com/MartinThoma/pomptty/actions/workflows/ci.yml/badge.svg)](https://github.com/MartinThoma/pomptty/actions/workflows/ci.yml)
+
 A minimal, Chrome-flavored terminal emulator for Linux (macOS/Windows later),
 built in Rust on [`egui`](https://github.com/emilk/egui) +
 [`egui_term`](https://github.com/Harzu/egui_term) (which wraps

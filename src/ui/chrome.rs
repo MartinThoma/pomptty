@@ -39,12 +39,14 @@ impl TabStrip<'_> {
         let strip_fill = mix(self.bg, self.fg, 0.05);
         let baseline = mix(self.bg, self.fg, 0.15);
 
-        let frame = egui::Frame::new().fill(strip_fill).inner_margin(egui::Margin {
-            left: 6,
-            right: 6,
-            top: 4,
-            bottom: 0,
-        });
+        let frame = egui::Frame::new()
+            .fill(strip_fill)
+            .inner_margin(egui::Margin {
+                left: 6,
+                right: 6,
+                top: 4,
+                bottom: 0,
+            });
 
         egui::Panel::top("pomptty_tab_strip")
             .frame(frame)
@@ -95,11 +97,8 @@ impl TabStrip<'_> {
                     .hline(rect.left()..=rect.right(), y, Stroke::new(1.0, baseline));
                 // Let the active tab sit flush against the grid below it.
                 if let Some(r) = active_rect {
-                    ui.painter().hline(
-                        r.left()..=r.right(),
-                        y,
-                        Stroke::new(1.5, self.bg),
-                    );
+                    ui.painter()
+                        .hline(r.left()..=r.right(), y, Stroke::new(1.5, self.bg));
                 }
             });
 
@@ -191,7 +190,10 @@ impl TabStrip<'_> {
         let on_close = ui
             .input(|i| i.pointer.interact_pos())
             .is_some_and(|p| close_rect.contains(p));
-        if close.clicked() || (resp.clicked() && on_close) || resp.clicked_by(egui::PointerButton::Middle) {
+        if close.clicked()
+            || (resp.clicked() && on_close)
+            || resp.clicked_by(egui::PointerButton::Middle)
+        {
             *action = ChromeAction::CloseTab(i);
         } else if resp.clicked() {
             *action = ChromeAction::SelectTab(i);
@@ -240,7 +242,8 @@ fn plus_button(ui: &mut egui::Ui, rest: Color32, active: Color32) -> egui::Respo
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_SIZE), Sense::click());
     let hot = resp.hovered();
     if hot {
-        ui.painter().rect_filled(rect, 5, active.gamma_multiply(0.15));
+        ui.painter()
+            .rect_filled(rect, 5, active.gamma_multiply(0.15));
     }
     let color = if hot { active } else { rest };
     let c = rect.center();
@@ -257,7 +260,8 @@ fn search_button(ui: &mut egui::Ui, rest: Color32, active: Color32) -> egui::Res
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_SIZE), Sense::click());
     let hot = resp.hovered();
     if hot {
-        ui.painter().rect_filled(rect, 5, active.gamma_multiply(0.15));
+        ui.painter()
+            .rect_filled(rect, 5, active.gamma_multiply(0.15));
     }
     let color = if hot { active } else { rest };
     let stroke = Stroke::new(1.4, color);

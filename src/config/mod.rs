@@ -175,4 +175,63 @@ mod tests {
         let cfg: Config = serde_json::from_str(r#"{ "theme": "solarized-light" }"#).unwrap();
         assert!(!cfg.theme.is_dark());
     }
+
+    #[test]
+    fn missing_file_is_created_with_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("config.json");
+        assert!(!path.exists());
+
+        let cfg = Config::load_or_create(&path).unwrap();
+        assert!(path.exists(), "the default config should have been written");
+        assert_eq!(cfg.font_size, Config::default().font_size);
+
+        // Re-loading the file we just wrote yields the same config.
+        let again = Config::load_or_create(&path).unwrap();
+        assert_eq!(again.font_size, cfg.font_size);
+    }
+
+    #[test]
+    fn custom_keybinding_survives_a_save_load_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+
+        let mut cfg = Config::default();
+        cfg.keybindings
+            .0
+            .insert("ctrl+shift+e".into(), keybindings::Action::NewTab);
+        cfg.keybindings
+            .0
+            .insert("ctrl+r".into(), keybindings::Action::Disabled);
+        cfg.save(&path).unwrap();
+
+        let loaded = Config::load_or_create(&path).unwrap();
+        let merged = loaded.keybindings.merged();
+        assert_eq!(
+            merged.get("ctrl+shift+e"),
+            Some(&keybindings::Action::NewTab)
+        );
+        assert_eq!(merged.get("ctrl+r"), None, "ctrl+r was disabled");
+        // A default the user didn't touch is still there.
+        assert_eq!(
+            merged.get("ctrl+shift+t"),
+            Some(&keybindings::Action::NewTab)
+        );
+    }
+
+    #[test]
+    fn malformed_file_errors_and_is_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let garbage = "{ this is not valid json ";
+        std::fs::write(&path, garbage).unwrap();
+
+        let err = Config::load_or_create(&path);
+        assert!(err.is_err(), "a malformed config must not load");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            garbage,
+            "the malformed file must not be overwritten"
+        );
+    }
 }

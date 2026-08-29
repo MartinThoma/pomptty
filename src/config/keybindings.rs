@@ -388,4 +388,44 @@ mod tests {
         assert_eq!(merged.get("ctrl+shift+t"), Some(&Action::Clear));
         assert_eq!(merged.get("ctrl+r"), None);
     }
+
+    #[test]
+    fn plus_and_equals_are_distinct_keys() {
+        assert_eq!(parse_chord("ctrl+equals").unwrap().key, Key::Equals);
+        assert_eq!(parse_chord("ctrl+plus").unwrap().key, Key::Plus);
+        assert_ne!(
+            parse_chord("ctrl+equals").unwrap().key,
+            parse_chord("ctrl+plus").unwrap().key
+        );
+    }
+
+    #[test]
+    fn disabling_an_unknown_chord_is_harmless() {
+        let kb: KeyBindings = serde_json::from_str(r#"{ "ctrl+shift+f19": "disabled" }"#).unwrap();
+        // Every default is still present, and nothing panics.
+        assert_eq!(kb.merged().len(), KeyBindings::default().0.len());
+    }
+
+    #[test]
+    fn compile_drops_unparseable_chords_but_keeps_the_rest() {
+        let kb: KeyBindings =
+            serde_json::from_str(r#"{ "ctrl+nonsense": "new-tab", "ctrl+shift+e": "clear" }"#)
+                .unwrap();
+        let compiled = kb.compile();
+        // The bogus chord is skipped; the good one and all defaults remain.
+        assert_eq!(compiled.len(), KeyBindings::default().0.len() + 1);
+        assert!(compiled.iter().all(|(_, a)| *a != Action::Disabled));
+    }
+
+    #[test]
+    fn every_compiled_chord_is_unique() {
+        let compiled = KeyBindings::default().compile();
+        let mut seen = std::collections::HashSet::new();
+        for (chord, _) in &compiled {
+            assert!(
+                seen.insert(format!("{chord:?}")),
+                "duplicate compiled chord: {chord:?}"
+            );
+        }
+    }
 }
