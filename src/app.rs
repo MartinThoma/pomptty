@@ -19,13 +19,26 @@ const PAGE_LINES: i32 = 24;
 const SCROLL_TO_EDGE: i32 = 1_000_000;
 const TOAST_TTL: Duration = Duration::from_secs(5);
 
+/// Font-zoom limits, in points.
+const FONT_MIN: f32 = 6.0;
+const FONT_MAX: f32 = 72.0;
+/// How long the font size must sit unchanged before it is written back to the
+/// config file, so holding the zoom key doesn't rewrite it on every repeat.
+const FONT_PERSIST_DELAY: Duration = Duration::from_millis(500);
+
 pub struct PompttyApp {
     config: Config,
     config_path: PathBuf,
     theme: TerminalTheme,
-    /// Current (possibly zoomed) font size, and the size to reset to.
+    /// The live terminal font size in points (changed by the zoom keys).
     font_size: f32,
-    base_font_size: f32,
+    /// The size `font-reset` returns to: the last value seen in the config file
+    /// from an outside edit. Zoom write-backs do not move it.
+    configured_font_size: f32,
+    /// Set when the zoom keys change `font_size`; cleared once the new value has
+    /// been persisted to the config file (see [`FONT_PERSIST_DELAY`]).
+    font_dirty: bool,
+    font_touched_at: Instant,
 
     tabs: Vec<TerminalTab>,
     active: usize,
@@ -73,7 +86,9 @@ impl PompttyApp {
         let mut app = Self {
             theme: config.theme.terminal_theme(),
             font_size: config.font_size,
-            base_font_size: config.font_size,
+            configured_font_size: config.font_size,
+            font_dirty: false,
+            font_touched_at: Instant::now(),
             bindings: config.keybindings.compile(),
             config,
             config_path,
@@ -259,23 +274,79 @@ impl PompttyApp {
             changed = true;
         }
         if changed {
-            self.reload_config(ctx);
+            self.reload_config(ctx, false);
         }
     }
 
-    fn reload_config(&mut self, ctx: &egui::Context) {
-        match Config::load_or_create(&self.config_path) {
-            Ok(cfg) => {
-                self.theme = cfg.theme.terminal_theme();
-                self.base_font_size = cfg.font_size;
-                self.font_size = cfg.font_size;
-                self.bindings = cfg.keybindings.compile();
-                crate::fonts::apply(ctx, &cfg);
-                ctx.set_visuals(cfg.theme.egui_visuals());
-                self.config = cfg;
-                self.set_toast("Config reloaded");
+    /// Reload `config.json`. `announce` controls whether a no-op reload (the
+    /// common case for our own font-size write-backs coming back through the
+    /// file watcher) still shows a toast — it does only for the manual
+    /// `Ctrl+Shift+R`.
+    fn reload_config(&mut self, ctx: &egui::Context, announce: bool) {
+        let cfg = match Config::load_or_create(&self.config_path) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                self.set_toast(format!("Config error (kept previous): {e:#}"));
+                return;
             }
-            Err(e) => self.set_toast(format!("Config error (kept previous): {e:#}")),
+        };
+
+        let same = serde_json::to_string(&cfg).ok() == serde_json::to_string(&self.config).ok();
+        if same {
+            if announce {
+                self.set_toast("Config unchanged");
+            }
+            return;
+        }
+
+        self.theme = cfg.theme.terminal_theme();
+        self.configured_font_size = cfg.font_size;
+        self.font_size = cfg.font_size;
+        self.font_dirty = false;
+        self.bindings = cfg.keybindings.compile();
+        crate::fonts::apply(ctx, &cfg);
+        ctx.set_visuals(cfg.theme.egui_visuals());
+        self.config = cfg;
+        self.set_toast("Config reloaded");
+    }
+
+    /// Move the terminal font size one zoom step in `dir` (+1 / -1), snapping to
+    /// the next size at which the terminal's integer cell metrics actually
+    /// change — otherwise a single press can leave the grid looking unchanged.
+    fn zoom_font(&mut self, ctx: &egui::Context, dir: f32) {
+        let next = snap_zoom(self.font_size, dir, |pt| {
+            ctx.fonts_mut(|f| f.glyph_width(&egui::FontId::monospace(pt), 'm'))
+                .floor()
+        });
+        self.set_font_size(next);
+    }
+
+    fn set_font_size(&mut self, pt: f32) {
+        let pt = pt.clamp(FONT_MIN, FONT_MAX);
+        if pt != self.font_size {
+            self.font_size = pt;
+            self.font_dirty = true;
+        }
+        self.font_touched_at = Instant::now();
+    }
+
+    /// Once the font size has been stable for [`FONT_PERSIST_DELAY`], write it
+    /// back to `config.json` so it survives a restart.
+    fn persist_font_size_when_settled(&mut self, ctx: &egui::Context) {
+        if !self.font_dirty {
+            return;
+        }
+        match FONT_PERSIST_DELAY.checked_sub(self.font_touched_at.elapsed()) {
+            Some(remaining) => ctx.request_repaint_after(remaining),
+            None => {
+                self.font_dirty = false;
+                if self.config.font_size != self.font_size {
+                    self.config.font_size = self.font_size;
+                    if let Err(e) = self.config.save(&self.config_path) {
+                        log::warn!("could not persist font size: {e:#}");
+                    }
+                }
+            }
         }
     }
 
@@ -295,15 +366,15 @@ impl PompttyApp {
 
     fn dispatch(&mut self, action: Action, ctx: &egui::Context) {
         match action {
-            Action::FontIncrease => self.font_size = (self.font_size + 1.0).min(72.0),
-            Action::FontDecrease => self.font_size = (self.font_size - 1.0).max(4.0),
-            Action::FontReset => self.font_size = self.base_font_size,
+            Action::FontIncrease => self.zoom_font(ctx, 1.0),
+            Action::FontDecrease => self.zoom_font(ctx, -1.0),
+            Action::FontReset => self.set_font_size(self.configured_font_size),
             Action::ScrollPageUp => self.active_tab().scroll(PAGE_LINES),
             Action::ScrollPageDown => self.active_tab().scroll(-PAGE_LINES),
             Action::ScrollToTop => self.active_tab().scroll(SCROLL_TO_EDGE),
             Action::ScrollToBottom => self.active_tab().scroll(-SCROLL_TO_EDGE),
             Action::Clear => self.active_tab().write(vec![0x0c]), // Ctrl+L
-            Action::ReloadConfig => self.reload_config(ctx),
+            Action::ReloadConfig => self.reload_config(ctx, true),
             Action::NewTab => self.spawn_tab(ctx),
             Action::CloseTab => self.request_close_tab(self.active, ctx),
             Action::NextTab => self.focus_delta(1),
@@ -361,6 +432,7 @@ impl eframe::App for PompttyApp {
         }
         self.active = self.active.min(self.tabs.len() - 1);
         self.sync_window_title(&ctx);
+        self.persist_font_size_when_settled(&ctx);
 
         if self.pending_close.is_some() {
             self.show_close_confirmation(&ctx);
@@ -397,6 +469,28 @@ impl eframe::App for PompttyApp {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
     }
+}
+
+/// Step `start` in direction `dir` (+/-) in 0.5pt increments until `cell_width`
+/// (the terminal's per-cell advance, floored to whole pixels) differs from where
+/// it started, or a font bound is hit. This keeps every zoom keypress producing
+/// a visible change: `egui_term` floors the cell size to an integer, so a small
+/// point change on its own can reflow nothing.
+fn snap_zoom(start: f32, dir: f32, cell_width: impl Fn(f32) -> f32) -> f32 {
+    let start_cell = cell_width(start);
+    let step = 0.5_f32.copysign(dir);
+    let mut next = start;
+    for _ in 0..280 {
+        let cand = (next + step).clamp(FONT_MIN, FONT_MAX);
+        if cand == next {
+            break; // hit FONT_MIN / FONT_MAX
+        }
+        next = cand;
+        if cell_width(next) != start_cell {
+            break;
+        }
+    }
+    next
 }
 
 fn color32(hex: &str) -> egui::Color32 {
@@ -446,5 +540,44 @@ fn spawn_config_watcher(
             log::warn!("config live-reload disabled: {e}");
             (rx, None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FONT_MAX, FONT_MIN, snap_zoom};
+
+    /// A stand-in for a monospace face: ~0.6pt of advance per point, floored to
+    /// whole pixels the way `egui_term` does.
+    fn cell(pt: f32) -> f32 {
+        (pt * 0.6).floor()
+    }
+
+    #[test]
+    fn snap_zoom_lands_on_a_real_grid_change() {
+        let up = snap_zoom(14.0, 1.0, cell);
+        assert!(up > 14.0);
+        assert_ne!(cell(up), cell(14.0));
+
+        let down = snap_zoom(14.0, -1.0, cell);
+        assert!(down < 14.0);
+        assert_ne!(cell(down), cell(14.0));
+    }
+
+    #[test]
+    fn snap_zoom_takes_the_smallest_step_that_shows() {
+        // From 14 (cell 8), the first 0.5 step that changes the floored cell is
+        // 15.0 (cell 9) — not 14.5 (still 8).
+        assert_eq!(cell(14.5), cell(14.0));
+        assert_eq!(snap_zoom(14.0, 1.0, cell), 15.0);
+    }
+
+    #[test]
+    fn snap_zoom_stops_at_the_bounds() {
+        let never = |_pt: f32| 0.0;
+        assert_eq!(snap_zoom(FONT_MAX, 1.0, never), FONT_MAX);
+        assert_eq!(snap_zoom(FONT_MIN, -1.0, never), FONT_MIN);
+        // Even a size that never reflows must not run past the ceiling.
+        assert_eq!(snap_zoom(14.0, 1.0, never), FONT_MAX);
     }
 }
