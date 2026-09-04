@@ -7,11 +7,44 @@ mod history;
 mod terminal;
 mod ui;
 
+use std::process::ExitCode;
+
 use anyhow::{Context, Result};
 
 use crate::config::Config;
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("--print-integration") => return print_integration(args.get(1).map(String::as_str)),
+        Some("--help" | "-h") => {
+            print_help();
+            return ExitCode::SUCCESS;
+        }
+        Some("--version" | "-V") => {
+            println!("pomptty {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Some(other) if other.starts_with('-') => {
+            eprintln!("pomptty: unknown option {other:?}\n");
+            print_help();
+            return ExitCode::from(2);
+        }
+        _ => {}
+    }
+
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("pomptty: {e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<()> {
+    export_env();
+
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("pomptty=info,warn"),
     )
@@ -50,4 +83,60 @@ fn main() -> Result<()> {
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
 
     Ok(())
+}
+
+/// Set up the environment that shells we spawn inherit. Called once, before any
+/// thread or `eframe` starts.
+///
+/// `egui_term` never sets `TERM`/`COLORTERM` itself, so without this the shell
+/// would inherit whatever launched pomptty (often wrong, or unset — which breaks
+/// line editing, `Ctrl+R`, colors). `xterm-256color` is the safe baseline the
+/// backend emulates.
+fn export_env() {
+    // SAFETY: `main` is still single-threaded here — nothing else reads or
+    // writes the environment until `eframe::run_native` below.
+    unsafe {
+        std::env::set_var("TERM", "xterm-256color");
+        std::env::set_var("COLORTERM", "truecolor");
+        std::env::set_var("POMPTTY", "1");
+    }
+    if let Some(dir) = history::history_dir()
+        && std::fs::create_dir_all(&dir).is_ok()
+    {
+        // SAFETY: see above.
+        unsafe { std::env::set_var("POMPTTY_HISTORY_DIR", &dir) };
+    }
+}
+
+fn print_integration(shell: Option<&str>) -> ExitCode {
+    match shell.and_then(history::integration::snippet) {
+        Some(snippet) => {
+            print!("{snippet}");
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!(
+                "pomptty --print-integration: expected one of: {}",
+                history::integration::SUPPORTED.join(", "),
+            );
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn print_help() {
+    let shells = history::integration::SUPPORTED.join("|");
+    println!(
+        "pomptty {ver} — a minimal, Chrome-flavored terminal emulator\n\
+         \n\
+         Usage:\n  \
+         pomptty                             launch the terminal\n  \
+         pomptty --print-integration <{shells}>   print the shell history hook\n  \
+         pomptty --help                      show this help\n  \
+         pomptty --version                   show the version\n\
+         \n\
+         Enable command history by adding the hook to your shell rc, e.g.\n  \
+         eval \"$(pomptty --print-integration bash)\"",
+        ver = env!("CARGO_PKG_VERSION"),
+    );
 }

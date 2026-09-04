@@ -133,7 +133,7 @@ config.
 
 | Field | Meaning |
 |---|---|
-| `font_family` | Path to a `.ttf`/`.otf` file, or `null` for the bundled monospace face. (Lookup by installed family name is planned.) |
+| `font_family` | Path to a `.ttf`/`.otf`/`.ttc` file, **or** the name of an installed font family (case-insensitive). `null` uses the bundled monospace face. |
 | `font_size` | Terminal font size, in points. Zooming with the keyboard writes the new size back here. |
 | `scrollback_lines` | Reserved; not yet wired to the backend. |
 | `shell` | Shell to launch, or `null` for `$SHELL` (falling back to `/bin/bash`). |

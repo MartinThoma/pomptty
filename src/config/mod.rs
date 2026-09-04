@@ -18,9 +18,10 @@ pub use theme::ThemeConfig;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Font family name. In milestone 1 this is only honored when it points at a
-    /// font file on disk (`.ttf`/`.otf`); system-font lookup by family name
-    /// comes later. `None` uses the bundled monospace face.
+    /// Font to use: either a path to a `.ttf`/`.otf`/`.ttc` file, or the name of
+    /// an installed font family (matched case-insensitively via the system font
+    /// directories). `None`, or a value that resolves to nothing, uses the
+    /// bundled monospace face.
     pub font_family: Option<String>,
     /// Terminal font size in points.
     pub font_size: f32,
