@@ -11,13 +11,24 @@ use notify::{RecursiveMode, Watcher};
 use crate::config::Config;
 use crate::config::keybindings::{Action, Chord};
 use crate::terminal::{TabId, TerminalTab};
-use crate::ui::chrome::{ChromeAction, TabStrip};
+use crate::ui::chrome::{ChromeAction, TabStrip, TabView};
+use crate::ui::style::Surfaces;
 
 /// How many lines a "page" scroll moves. A rough constant is fine — the backend
 /// clamps at the ends of the scrollback.
 const PAGE_LINES: i32 = 24;
 const SCROLL_TO_EDGE: i32 = 1_000_000;
 const TOAST_TTL: Duration = Duration::from_secs(5);
+/// Uniform breathing room between the window edge and the terminal grid.
+const TERMINAL_MARGIN: i8 = 8;
+
+/// A transient status message shown at the bottom of the window.
+struct Toast {
+    msg: String,
+    born: Instant,
+    /// Set once the TTL elapses; the toast then fades out before it is dropped.
+    dismissing: bool,
+}
 
 /// Font-zoom limits, in points.
 const FONT_MIN: f32 = 6.0;
@@ -56,7 +67,7 @@ pub struct PompttyApp {
     /// A tab whose close is waiting on the "a process is still running"
     /// confirmation, identified by id so a shifting `Vec` can't misfire it.
     pending_close: Option<TabId>,
-    toast: Option<(String, Instant)>,
+    toast: Option<Toast>,
     /// The window title we last pushed, to avoid redundant viewport commands.
     title_shown: String,
 }
@@ -70,7 +81,7 @@ impl PompttyApp {
     ) -> Result<Self> {
         let ctx = &cc.egui_ctx;
         crate::fonts::apply(ctx, &config);
-        ctx.set_visuals(config.theme.egui_visuals());
+        crate::ui::style::apply(ctx, &config.theme);
 
         let (pty_events_tx, pty_events_rx) = channel();
         let first = TerminalTab::new(
@@ -110,7 +121,44 @@ impl PompttyApp {
     }
 
     fn set_toast(&mut self, msg: impl Into<String>) {
-        self.toast = Some((msg.into(), Instant::now()));
+        self.toast = Some(Toast {
+            msg: msg.into(),
+            born: Instant::now(),
+            dismissing: false,
+        });
+    }
+
+    /// Bottom-centered status message, sliding up + fading on both ends.
+    fn show_toast(&mut self, ctx: &egui::Context) {
+        if let Some(t) = &mut self.toast
+            && !t.dismissing
+            && t.born.elapsed() >= TOAST_TTL
+        {
+            t.dismissing = true;
+        }
+
+        let want = self.toast.as_ref().is_some_and(|t| !t.dismissing);
+        let vis = ctx.animate_bool_with_time(egui::Id::new("pomptty_toast"), want, 0.16);
+        if vis == 0.0 {
+            if self.toast.as_ref().is_some_and(|t| t.dismissing) {
+                self.toast = None;
+            }
+            return;
+        }
+        let Some(t) = &self.toast else { return };
+
+        egui::Area::new("pomptty_toast".into())
+            .anchor(
+                egui::Align2::CENTER_BOTTOM,
+                egui::vec2(0.0, -22.0 + (1.0 - vis) * 10.0),
+            )
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.set_opacity(vis);
+                egui::Frame::popup(ui.style())
+                    .corner_radius(8)
+                    .show(ui, |ui| ui.label(&t.msg));
+            });
     }
 
     /// Push the active tab's title to the window title bar, if it changed.
@@ -194,28 +242,56 @@ impl PompttyApp {
         }
         let title = self.tabs[idx].title.clone();
 
+        let s = Surfaces::from_theme(&self.config.theme);
         let mut close = false;
         let mut cancel = false;
-        let modal = egui::Modal::new(egui::Id::new("pomptty_confirm_close")).show(ctx, |ui| {
-            ui.set_max_width(360.0);
-            ui.heading("Close this tab?");
-            ui.add_space(6.0);
-            let what = if title.is_empty() {
-                "A process is still running in this tab.".to_owned()
-            } else {
-                format!("“{title}” is still running in this tab.")
-            };
-            ui.label(format!("{what} Closing it will end that process."));
-            ui.add_space(12.0);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Close tab").clicked() {
-                    close = true;
-                }
-                if ui.button("Cancel").clicked() {
-                    cancel = true;
-                }
+        let vis = ctx.animate_bool_with_time(egui::Id::new("pomptty_confirm_anim"), true, 0.11);
+        let shadow_alpha = if self.config.theme.is_dark() { 130 } else { 55 };
+        let frame = egui::Frame::new()
+            .fill(s.raised)
+            .stroke(egui::Stroke::new(1.0, s.border))
+            .corner_radius(12)
+            .inner_margin(egui::Margin::same(20))
+            .shadow(egui::Shadow {
+                offset: [0, 12],
+                blur: 34,
+                spread: 0,
+                color: egui::Color32::from_black_alpha(shadow_alpha),
             });
-        });
+        let modal = egui::Modal::new(egui::Id::new("pomptty_confirm_close"))
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.set_opacity(vis);
+                ui.set_width(340.0);
+                ui.label(egui::RichText::new("Close this tab?").size(16.0).strong());
+                ui.add_space(8.0);
+                let what = if title.is_empty() {
+                    "A process is still running in this tab.".to_owned()
+                } else {
+                    format!("“{title}” is still running in this tab.")
+                };
+                ui.label(
+                    egui::RichText::new(format!("{what} Closing it ends that process."))
+                        .color(s.text_muted),
+                );
+                ui.add_space(18.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let danger = egui::Button::new(
+                        egui::RichText::new("Close tab").color(crate::ui::style::on_accent(s.err)),
+                    )
+                    .fill(s.err)
+                    .corner_radius(7);
+                    if ui.add(danger).clicked() {
+                        close = true;
+                    }
+                    if ui
+                        .add(egui::Button::new("Cancel").fill(egui::Color32::TRANSPARENT))
+                        .clicked()
+                    {
+                        cancel = true;
+                    }
+                });
+            });
 
         if close {
             self.pending_close = None;
@@ -305,7 +381,7 @@ impl PompttyApp {
         self.font_dirty = false;
         self.bindings = cfg.keybindings.compile();
         crate::fonts::apply(ctx, &cfg);
-        ctx.set_visuals(cfg.theme.egui_visuals());
+        crate::ui::style::apply(ctx, &cfg.theme);
         self.config = cfg;
         self.set_toast("Config reloaded");
     }
@@ -404,16 +480,22 @@ impl eframe::App for PompttyApp {
             return;
         }
 
-        let palette = self.config.theme.palette();
-        let titles: Vec<String> = self.tabs.iter().map(|t| t.title.clone()).collect();
-        let chrome_action = TabStrip {
-            titles: &titles,
+        let surfaces = Surfaces::from_theme(&self.config.theme);
+        let tab_meta: Vec<(TabId, String)> =
+            self.tabs.iter().map(|t| (t.id, t.title.clone())).collect();
+        let tabs: Vec<TabView<'_>> = tab_meta
+            .iter()
+            .map(|(id, title)| TabView { id: *id, title })
+            .collect();
+        let (chrome_action, chrome_animating) = TabStrip {
+            tabs: &tabs,
             active: self.active,
-            fg: color32(&palette.foreground),
-            bg: color32(&palette.background),
-            accent: color32(&palette.blue),
+            surfaces,
         }
         .show(ui);
+        if chrome_animating {
+            ctx.request_repaint();
+        }
         match chrome_action {
             ChromeAction::NewTab => self.spawn_tab(&ctx),
             ChromeAction::SelectTab(i) => {
@@ -439,9 +521,15 @@ impl eframe::App for PompttyApp {
             if self.tabs.is_empty() {
                 return;
             }
+        } else {
+            // Re-prime the modal's open animation for next time.
+            ctx.animate_bool_with_time(egui::Id::new("pomptty_confirm_anim"), false, 0.0);
         }
 
-        egui::CentralPanel::default().show(ui, |ui| {
+        let panel = egui::Frame::new()
+            .fill(surfaces.bg)
+            .inner_margin(egui::Margin::same(TERMINAL_MARGIN));
+        egui::CentralPanel::default().frame(panel).show(ui, |ui| {
             let tab = &mut self.tabs[self.active];
             let view = TerminalView::new(ui, &mut tab.backend)
                 .set_focus(self.pending_close.is_none())
@@ -453,21 +541,7 @@ impl eframe::App for PompttyApp {
             ui.add(view);
         });
 
-        let expired = matches!(&self.toast, Some((_, t)) if t.elapsed() >= TOAST_TTL);
-        if expired {
-            self.toast = None;
-        }
-        if let Some((msg, _)) = &self.toast {
-            egui::Area::new("pomptty_toast".into())
-                .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -18.0))
-                .interactable(false)
-                .show(&ctx, |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.label(msg);
-                    });
-                });
-            ctx.request_repaint_after(Duration::from_millis(250));
-        }
+        self.show_toast(&ctx);
     }
 }
 
@@ -491,11 +565,6 @@ fn snap_zoom(start: f32, dir: f32, cell_width: impl Fn(f32) -> f32) -> f32 {
         }
     }
     next
-}
-
-fn color32(hex: &str) -> egui::Color32 {
-    let [r, g, b] = crate::config::theme::parse_hex(hex).unwrap_or([128, 128, 128]);
-    egui::Color32::from_rgb(r, g, b)
 }
 
 /// Watch the config file's directory and signal `()` on any change to it.

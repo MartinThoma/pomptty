@@ -77,22 +77,34 @@ history instead; cwd comes from `/proc/<shell_pid>/cwd`.
 
 ## M4 — stunning by default ★
 
-The reason someone opens the screenshot and installs it. In rough priority:
+The reason someone opens the screenshot and installs it.
 
-- [ ] designed default theme + type scale; cozy padding; gently rounded panes
-      (a real design pass, not "Solarized because it was handy")
-- [ ] **frameless Chrome-style window**: integrated title + tab bar, custom
-      min/max/close, drag region, rounded corners + shadow, resize borders
-- [ ] ligatures + real bold / italic; bundled quality mono; **Nerd-Font glyph
-      fallback chain** so powerline prompts and devicons just work
-- [ ] motion: tab open / close / reorder spring; overlay fade + scale; toast
-      slide — never at the cost of input latency
-- [ ] smooth cursor (animated glide between cells) + block / beam / underline,
-      blink, themed color — all from config
-- [ ] depth: optional background blur / translucency; optional background image
-      with dimming + vignette; faint top-edge pane highlight
-- [ ] bell / urgency handling (visual flash, window attention)
-- [ ] hyperlink (OSC 8) support with a styled hover affordance
+**Slice 1 — chrome design pass + motion** (all in pomptty's egui layer):
+
+- [x] `ui::style` design system: one palette-derived `Surfaces` shade set + the
+      full `egui::Style` (widget states, selection, shadows, rounding, spacing,
+      type scale) — replaces the old four-field `Visuals` tweak
+- [x] refined tab strip: floating tabs, `surface`/accent treatment, faint
+      dividers, raised-strip shadow; consumes `Surfaces`
+- [x] cozy terminal padding (window edge → grid inset)
+- [x] motion: tab-open spring, active-accent slide, toast slide+fade in/out,
+      close-confirm modal fade-in; repaint only while animating
+- [x] designed close-confirm modal (danger button, shadow, spacing)
+
+**Slice 2 — frameless Chrome-style window**: integrated title + tab bar, custom
+min/max/close, drag region, rounded corners + shadow, resize borders.
+
+**Slice 3 — typography & the grid**: ligatures + real bold / italic; bundled
+quality mono; **Nerd-Font glyph fallback chain** so powerline prompts and
+devicons just work.
+
+**Slice 4 — in-terminal polish**: smooth cursor (glide between cells) + block /
+beam / underline / blink / themed color; bell (visual flash + window attention);
+OSC 8 hyperlink hover affordance. (Cursor styling likely needs a small
+`egui_term` fork or a drawn overlay — see notes.)
+
+**Slice 5 — depth**: optional background blur / translucency; optional background
+image with dimming + vignette; faint top-edge pane highlight.
 
 ## M5 — command blocks ★ (flagship)
 

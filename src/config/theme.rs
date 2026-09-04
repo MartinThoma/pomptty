@@ -44,25 +44,8 @@ impl ThemeConfig {
         TerminalTheme::new(Box::new(self.palette().into()))
     }
 
-    /// egui visuals for the surrounding chrome, tinted to match the terminal
-    /// background so the frame and the grid read as one surface.
-    pub fn egui_visuals(&self) -> egui::Visuals {
-        let p = self.palette();
-        let bg = color32(&p.background);
-        let fg = color32(&p.foreground);
-        let mut v = if self.is_dark() {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        };
-        v.panel_fill = bg;
-        v.window_fill = bg;
-        v.extreme_bg_color = bg;
-        v.override_text_color = Some(fg);
-        v
-    }
-
-    /// Whether the resolved background is dark (used to pick egui's base visuals).
+    /// Whether the resolved background is dark. Drives light/dark base `Visuals`
+    /// and shade derivation in [`crate::ui::style`].
     pub fn is_dark(&self) -> bool {
         let [r, g, b] = parse_hex(&self.palette().background).unwrap_or([0, 0, 0]);
         // Rec. 601 luma.
@@ -230,12 +213,6 @@ impl From<PaletteConfig> for ColorPalette {
             ..ColorPalette::default()
         }
     }
-}
-
-/// Parse a hex color into an egui color, defaulting to mid-gray.
-fn color32(s: &str) -> egui::Color32 {
-    let [r, g, b] = parse_hex(s).unwrap_or([128, 128, 128]);
-    egui::Color32::from_rgb(r, g, b)
 }
 
 /// Parse `#rrggbb` (or `rrggbb`) into bytes.
