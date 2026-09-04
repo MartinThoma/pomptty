@@ -50,9 +50,10 @@ pub struct WindowConfig {
     /// Initial window size in logical pixels.
     pub width: f32,
     pub height: f32,
-    /// `"system"` (default) keeps the OS title bar. `"custom"` drops it and
-    /// makes pomptty's own tab strip the title bar, Chrome-style — no drop
-    /// shadow on non-compositing X11 window managers. Takes effect on restart.
+    /// `"custom"` (default) drops the OS title bar and makes pomptty's own tab
+    /// strip the title bar, Chrome-style. `"system"` keeps the OS title bar —
+    /// use it if your window manager handles a borderless window poorly (no drop
+    /// shadow on non-compositing X11). Takes effect on restart.
     pub decorations: Decoration,
 }
 
@@ -70,11 +71,11 @@ impl Default for WindowConfig {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Decoration {
-    /// The OS-drawn title bar and borders.
-    #[default]
-    System,
     /// Frameless: pomptty draws its own title bar / borders.
+    #[default]
     Custom,
+    /// The OS-drawn title bar and borders.
+    System,
 }
 
 impl Default for Config {

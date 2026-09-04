@@ -140,7 +140,7 @@ config.
 | `shell_args` | Extra arguments for the shell. |
 | `theme` | A builtin name or an inline palette object (see below). |
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
-| `window` | `width` / `height` in logical pixels, and `decorations`: `"system"` (default) or `"custom"` — frameless, with pomptty's own tab strip as the title bar (best on a compositing window manager; takes effect on restart). |
+| `window` | `width` / `height` in logical pixels, and `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly; takes effect on restart). |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the
 fallback chain, so powerline prompts and devicon themes render their icons rather
