@@ -41,6 +41,9 @@ pub struct PompttyApp {
     config: Config,
     config_path: PathBuf,
     theme: TerminalTheme,
+    /// Whether pomptty draws its own window frame (from `window.decorations`;
+    /// fixed at startup — the viewport flag can't change at runtime).
+    custom_chrome: bool,
     /// The live terminal font size in points (changed by the zoom keys).
     font_size: f32,
     /// The size `font-reset` returns to: the last value seen in the config file
@@ -96,6 +99,7 @@ impl PompttyApp {
 
         let mut app = Self {
             theme: config.theme.terminal_theme(),
+            custom_chrome: config.window.decorations == crate::config::Decoration::Custom,
             font_size: config.font_size,
             configured_font_size: config.font_size,
             font_dirty: false,
@@ -481,6 +485,11 @@ impl eframe::App for PompttyApp {
         }
 
         let surfaces = Surfaces::from_theme(&self.config.theme);
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        if self.custom_chrome && !maximized {
+            resize_edges(ui, &ctx);
+        }
+
         let tab_meta: Vec<(TabId, String)> =
             self.tabs.iter().map(|t| (t.id, t.title.clone())).collect();
         let tabs: Vec<TabView<'_>> = tab_meta
@@ -491,11 +500,13 @@ impl eframe::App for PompttyApp {
             tabs: &tabs,
             active: self.active,
             surfaces,
+            window_controls: self.custom_chrome,
         }
         .show(ui);
         if chrome_animating {
             ctx.request_repaint();
         }
+
         match chrome_action {
             ChromeAction::NewTab => self.spawn_tab(&ctx),
             ChromeAction::SelectTab(i) => {
@@ -506,6 +517,18 @@ impl eframe::App for PompttyApp {
             ChromeAction::CloseTab(i) => self.request_close_tab(i, &ctx),
             ChromeAction::OpenSearch => {
                 self.set_toast("History search (Ctrl+R) is not implemented yet");
+            }
+            ChromeAction::Minimize => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
+            ChromeAction::ToggleMaximize => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+            }
+            ChromeAction::CloseWindow => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            ChromeAction::BeginWindowDrag => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
             }
             ChromeAction::None => {}
         }
@@ -541,7 +564,90 @@ impl eframe::App for PompttyApp {
             ui.add(view);
         });
 
+        if self.custom_chrome {
+            // A hairline border so the frameless window has a defined edge.
+            let r = ctx.content_rect();
+            ui.painter().rect_stroke(
+                r.shrink(0.5),
+                0,
+                egui::Stroke::new(1.0, surfaces.border),
+                egui::StrokeKind::Inside,
+            );
+        }
+
         self.show_toast(&ctx);
+    }
+}
+
+/// Invisible 6px hit regions along the window edges/corners that begin a
+/// system resize-drag (custom decorations only).
+fn resize_edges(ui: &egui::Ui, ctx: &egui::Context) {
+    use egui::ResizeDirection as D;
+    use egui::{CursorIcon as C, Rect};
+
+    const M: f32 = 6.0;
+    let r = ctx.content_rect();
+    // (rect, direction, cursor)
+    let regions = [
+        (
+            Rect::from_min_max(r.left_top(), r.right_top() + egui::vec2(0.0, M)),
+            D::North,
+            C::ResizeNorth,
+        ),
+        (
+            Rect::from_min_max(r.left_bottom() - egui::vec2(0.0, M), r.right_bottom()),
+            D::South,
+            C::ResizeSouth,
+        ),
+        (
+            Rect::from_min_max(r.left_top(), r.left_bottom() + egui::vec2(M, 0.0)),
+            D::West,
+            C::ResizeWest,
+        ),
+        (
+            Rect::from_min_max(r.right_top() - egui::vec2(M, 0.0), r.right_bottom()),
+            D::East,
+            C::ResizeEast,
+        ),
+        (
+            Rect::from_min_max(r.left_top(), r.left_top() + egui::vec2(M, M)),
+            D::NorthWest,
+            C::ResizeNorthWest,
+        ),
+        (
+            Rect::from_min_max(
+                r.right_top() - egui::vec2(M, 0.0),
+                r.right_top() + egui::vec2(0.0, M),
+            ),
+            D::NorthEast,
+            C::ResizeNorthEast,
+        ),
+        (
+            Rect::from_min_max(
+                r.left_bottom() - egui::vec2(0.0, M),
+                r.left_bottom() + egui::vec2(M, 0.0),
+            ),
+            D::SouthWest,
+            C::ResizeSouthWest,
+        ),
+        (
+            Rect::from_min_max(r.right_bottom() - egui::vec2(M, M), r.right_bottom()),
+            D::SouthEast,
+            C::ResizeSouthEast,
+        ),
+    ];
+    for (i, (rect, dir, cursor)) in regions.into_iter().enumerate() {
+        let resp = ui.interact(
+            rect,
+            egui::Id::new(("pomptty_resize", i)),
+            egui::Sense::drag(),
+        );
+        if resp.hovered() {
+            ctx.set_cursor_icon(cursor);
+        }
+        if resp.drag_started() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
+        }
     }
 }
 

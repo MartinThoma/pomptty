@@ -14,6 +14,12 @@ pub enum ChromeAction {
     CloseTab(usize),
     /// The `Ctrl+R` search affordance was clicked.
     OpenSearch,
+    /// Custom-decoration window controls (only when `window_controls`).
+    Minimize,
+    ToggleMaximize,
+    CloseWindow,
+    /// The title-bar drag region was grabbed — start moving the window.
+    BeginWindowDrag,
 }
 
 /// One tab, as the strip needs to see it.
@@ -27,9 +33,11 @@ pub struct TabStrip<'a> {
     pub tabs: &'a [TabView<'a>],
     pub active: usize,
     pub surfaces: Surfaces,
+    /// Draw minimize / maximize / close and make the strip a window-drag region
+    /// (custom decorations).
+    pub window_controls: bool,
 }
 
-const STRIP_HEIGHT: f32 = 38.0;
 /// Space above the tabs so they "float" in the strip, Chrome-style.
 const STRIP_PAD_TOP: i8 = 7;
 const TAB_HEIGHT: f32 = 29.0;
@@ -63,15 +71,36 @@ impl TabStrip<'_> {
 
         egui::Panel::top("pomptty_tab_strip")
             .frame(frame)
-            .exact_size(STRIP_HEIGHT)
+            .exact_size(STRIP_PAD_TOP as f32 + TAB_HEIGHT)
             .resizable(false)
             .show_separator_line(false)
             .show(ui, |ui| {
+                // Drag region first (registered "below"), so tabs and buttons
+                // drawn on top win their own clicks.
+                if self.window_controls {
+                    let drag = ui.interact(
+                        ui.max_rect(),
+                        Id::new("pomptty_titlebar_drag"),
+                        Sense::click_and_drag(),
+                    );
+                    if drag.drag_started() {
+                        action = ChromeAction::BeginWindowDrag;
+                    }
+                    if drag.double_clicked() {
+                        action = ChromeAction::ToggleMaximize;
+                    }
+                }
+                let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
                 let mut active_rect = None;
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing = vec2(TAB_GAP, 0.0);
 
-                    let reserve = BTN_SIZE * 2.0 + TAB_GAP + 10.0;
+                    let ctrl_w = if self.window_controls {
+                        BTN_SIZE * 3.0 + 8.0
+                    } else {
+                        0.0
+                    };
+                    let reserve = BTN_SIZE + ctrl_w + 14.0;
                     egui::ScrollArea::horizontal()
                         .max_width((ui.available_width() - reserve).max(0.0))
                         .show(ui, |ui| {
@@ -106,6 +135,32 @@ impl TabStrip<'_> {
                         });
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.window_controls {
+                            if icon_button(ui, &s, Glyph::Close)
+                                .on_hover_text("Close window")
+                                .clicked()
+                            {
+                                action = ChromeAction::CloseWindow;
+                            }
+                            let max_glyph = if maximized {
+                                Glyph::Restore
+                            } else {
+                                Glyph::Maximize
+                            };
+                            if icon_button(ui, &s, max_glyph)
+                                .on_hover_text(if maximized { "Restore" } else { "Maximize" })
+                                .clicked()
+                            {
+                                action = ChromeAction::ToggleMaximize;
+                            }
+                            if icon_button(ui, &s, Glyph::Minimize)
+                                .on_hover_text("Minimize")
+                                .clicked()
+                            {
+                                action = ChromeAction::Minimize;
+                            }
+                            ui.add_space(4.0);
+                        }
                         if icon_button(ui, &s, Glyph::Search)
                             .on_hover_text("Search history  ·  Ctrl+R")
                             .clicked()
@@ -298,19 +353,33 @@ fn paint_close(ui: &egui::Ui, rect: Rect, resp: &egui::Response, s: &Surfaces) {
     p.line_segment([c + vec2(-r, r), c + vec2(r, -r)], stroke);
 }
 
+#[derive(Clone, Copy)]
 enum Glyph {
     Plus,
     Search,
+    Minimize,
+    Maximize,
+    Restore,
+    Close,
 }
 
 fn icon_button(ui: &mut egui::Ui, s: &Surfaces, glyph: Glyph) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BTN_SIZE), Sense::click());
     let t = ui.ctx().animate_bool(resp.id, resp.hovered());
+    let danger = matches!(glyph, Glyph::Close);
     if t > 0.0 {
-        ui.painter()
-            .rect_filled(rect, 6, mix(Color32::TRANSPARENT, s.hover, t));
+        let fill = if danger {
+            mix(Color32::TRANSPARENT, s.err, t * 0.9)
+        } else {
+            mix(Color32::TRANSPARENT, s.hover, t)
+        };
+        ui.painter().rect_filled(rect, 6, fill);
     }
-    let color = mix(s.text_muted, s.text, t);
+    let color = if danger && t > 0.0 {
+        Color32::WHITE
+    } else {
+        mix(s.text_muted, s.text, t)
+    };
     let stroke = Stroke::new(1.6, color);
     let c = rect.center();
     let p = ui.painter();
@@ -325,6 +394,25 @@ fn icon_button(ui: &mut egui::Ui, s: &Surfaces, glyph: Glyph) -> egui::Response 
             p.circle_stroke(o, 4.2, stroke);
             let a = o + vec2(3.0, 3.0);
             p.line_segment([a, a + vec2(3.6, 3.6)], stroke);
+        }
+        Glyph::Minimize => {
+            p.line_segment([c + vec2(-4.5, 3.0), c + vec2(4.5, 3.0)], stroke);
+        }
+        Glyph::Maximize => {
+            let r = Rect::from_center_size(c, Vec2::splat(9.0));
+            p.rect_stroke(r, 1, stroke, egui::StrokeKind::Middle);
+        }
+        Glyph::Restore => {
+            let back = Rect::from_min_size(c + vec2(-2.5, -4.5), Vec2::splat(7.0));
+            let front = Rect::from_min_size(c + vec2(-4.5, -2.5), Vec2::splat(7.0));
+            p.rect_stroke(back, 1, stroke, egui::StrokeKind::Middle);
+            p.rect_filled(front, 1, s.raised);
+            p.rect_stroke(front, 1, stroke, egui::StrokeKind::Middle);
+        }
+        Glyph::Close => {
+            let r = 4.0;
+            p.line_segment([c + vec2(-r, -r), c + vec2(r, r)], stroke);
+            p.line_segment([c + vec2(-r, r), c + vec2(r, -r)], stroke);
         }
     }
     resp

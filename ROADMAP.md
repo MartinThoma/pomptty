@@ -91,8 +91,10 @@ The reason someone opens the screenshot and installs it.
       close-confirm modal fade-in; repaint only while animating
 - [x] designed close-confirm modal (danger button, shadow, spacing)
 
-**Slice 2 — frameless Chrome-style window**: integrated title + tab bar, custom
-min/max/close, drag region, rounded corners + shadow, resize borders.
+- [x] **Slice 2 — frameless Chrome-style window** (opt-in, `window.decorations:
+      "custom"`): tab strip is the title bar, min/max/close, strip drag region,
+      resize edges, hairline border. No client shadow / rounded corners on X11;
+      some X11 WMs (Marco) size an undecorated window to the whole work area.
 
 **Slice 3 — typography & the grid**: ligatures + real bold / italic; bundled
 quality mono; **Nerd-Font glyph fallback chain** so powerline prompts and

@@ -59,12 +59,22 @@ fn run() -> Result<()> {
         }
     };
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([config.window.width, config.window.height])
+        .with_min_inner_size([320.0, 200.0])
+        .with_title("pomptty")
+        .with_app_id("pomptty");
+    if config.window.decorations == config::Decoration::Custom {
+        // pomptty draws its own title bar / borders. The explicit "normal"
+        // window type stops some X11 WMs (e.g. Marco) from auto-maximizing an
+        // undecorated window.
+        viewport = viewport
+            .with_decorations(false)
+            .with_window_type(egui::X11WindowType::Normal)
+            .with_resizable(true);
+    }
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([config.window.width, config.window.height])
-            .with_min_inner_size([320.0, 200.0])
-            .with_title("pomptty")
-            .with_app_id("pomptty"),
+        viewport,
         ..Default::default()
     };
 

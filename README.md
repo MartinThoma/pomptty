@@ -140,7 +140,7 @@ config.
 | `shell_args` | Extra arguments for the shell. |
 | `theme` | A builtin name or an inline palette object (see below). |
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
-| `window` | Initial `width` / `height` in logical pixels. |
+| `window` | `width` / `height` in logical pixels, and `decorations`: `"system"` (default) or `"custom"` — frameless, with pomptty's own tab strip as the title bar (best on a compositing window manager; takes effect on restart). |
 
 ### Theme
 

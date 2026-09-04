@@ -40,15 +40,20 @@ pub struct Config {
     /// Keyboard shortcuts, mapping a chord string (`"ctrl+shift+t"`) to an
     /// [`Action`].
     pub keybindings: KeyBindings,
-    /// Initial window size in logical pixels.
+    /// Initial window size, and how the window frame is drawn.
     pub window: WindowConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WindowConfig {
+    /// Initial window size in logical pixels.
     pub width: f32,
     pub height: f32,
+    /// `"system"` (default) keeps the OS title bar. `"custom"` drops it and
+    /// makes pomptty's own tab strip the title bar, Chrome-style — no drop
+    /// shadow on non-compositing X11 window managers. Takes effect on restart.
+    pub decorations: Decoration,
 }
 
 impl Default for WindowConfig {
@@ -56,8 +61,20 @@ impl Default for WindowConfig {
         Self {
             width: 900.0,
             height: 560.0,
+            decorations: Decoration::default(),
         }
     }
+}
+
+/// How the window frame is drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Decoration {
+    /// The OS-drawn title bar and borders.
+    #[default]
+    System,
+    /// Frameless: pomptty draws its own title bar / borders.
+    Custom,
 }
 
 impl Default for Config {
