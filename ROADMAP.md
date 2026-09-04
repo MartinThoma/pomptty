@@ -96,14 +96,20 @@ The reason someone opens the screenshot and installs it.
       resize edges, hairline border. No client shadow / rounded corners on X11;
       some X11 WMs (Marco) size an undecorated window to the whole work area.
 
-**Slice 3 — typography & the grid**: ligatures + real bold / italic; bundled
-quality mono; **Nerd-Font glyph fallback chain** so powerline prompts and
-devicons just work.
+**Slice 3 — glyph fallback + bell**:
 
-**Slice 4 — in-terminal polish**: smooth cursor (glide between cells) + block /
-beam / underline / blink / themed color; bell (visual flash + window attention);
-OSC 8 hyperlink hover affordance. (Cursor styling likely needs a small
-`egui_term` fork or a drawn overlay — see notes.)
+- [x] Nerd / Powerline glyph fallback: an installed symbol font is auto-appended
+      to the `Monospace` + `Proportional` fallback chains (via `fontdb`), so
+      powerline prompts / devicons render instead of boxes. Zero binary weight.
+- [x] terminal bell: brief accent flash + `RequestUserAttention` when unfocused
+
+**Slice 4 — in-terminal polish** (needs an `egui_term` fork — it renders the
+grid one `char` at a time with a single `FontId`):
+
+- [ ] **ligatures** and **per-cell bold / italic** (real weight faces)
+- [ ] smooth cursor (glide between cells) + block / beam / underline / blink /
+      themed color from config
+- [ ] OSC 8 hyperlink hover affordance (plain hover, not `Ctrl`+hover)
 
 **Slice 5 — depth**: optional background blur / translucency; optional background
 image with dimming + vignette; faint top-edge pane highlight.

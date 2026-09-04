@@ -71,6 +71,8 @@ pub struct PompttyApp {
     /// confirmation, identified by id so a shifting `Vec` can't misfire it.
     pending_close: Option<TabId>,
     toast: Option<Toast>,
+    /// When the terminal last rang the bell — drives a brief screen flash.
+    bell_at: Option<Instant>,
     /// The window title we last pushed, to avoid redundant viewport commands.
     title_shown: String,
 }
@@ -116,6 +118,7 @@ impl PompttyApp {
             _config_watcher: watcher,
             pending_close: None,
             toast: None,
+            bell_at: None,
             title_shown: String::new(),
         };
         if let Some(err) = config_error {
@@ -130,6 +133,27 @@ impl PompttyApp {
             born: Instant::now(),
             dismissing: false,
         });
+    }
+
+    /// A brief accent tint over the window when the terminal rings the bell,
+    /// and clearing the taskbar attention flag once focus returns.
+    fn show_bell_flash(&mut self, ui: &egui::Ui, ctx: &egui::Context, s: Surfaces) {
+        const FLASH: Duration = Duration::from_millis(180);
+        let Some(at) = self.bell_at else { return };
+        let elapsed = at.elapsed();
+        if elapsed >= FLASH {
+            self.bell_at = None;
+            if ctx.input(|i| i.focused) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+                    egui::UserAttentionType::Reset,
+                ));
+            }
+            return;
+        }
+        let t = 1.0 - elapsed.as_secs_f32() / FLASH.as_secs_f32();
+        ui.painter()
+            .rect_filled(ctx.content_rect(), 0, s.accent.gamma_multiply(0.22 * t));
+        ctx.request_repaint();
     }
 
     /// Bottom-centered status message, sliding up + fading on both ends.
@@ -340,6 +364,14 @@ impl PompttyApp {
                 PtyEvent::Title(title) => {
                     if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
                         tab.title = title;
+                    }
+                }
+                PtyEvent::Bell => {
+                    self.bell_at = Some(Instant::now());
+                    if !ctx.input(|i| i.focused) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+                            egui::UserAttentionType::Informational,
+                        ));
                     }
                 }
                 _ => {}
@@ -575,6 +607,7 @@ impl eframe::App for PompttyApp {
             );
         }
 
+        self.show_bell_flash(ui, &ctx, surfaces);
         self.show_toast(&ctx);
     }
 }

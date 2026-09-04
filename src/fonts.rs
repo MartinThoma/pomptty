@@ -4,8 +4,13 @@
 //! may be either a path to a `.ttf`/`.otf`/`.ttc` file or the name of an
 //! installed font family (looked up via `fontdb` / the system font
 //! directories); if it resolves to nothing, the bundled font is kept.
+//!
+//! Regardless of `font_family`, an installed Nerd / Powerline font (if any) is
+//! appended to the fallback chain so powerline prompts and devicon themes render
+//! their private-use glyphs instead of boxes. Nothing in egui's default chain
+//! covers that range.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use fontdb::{Database, FaceInfo, Family, Query, Style};
@@ -13,6 +18,17 @@ use fontdb::{Database, FaceInfo, Family, Query, Style};
 use crate::config::Config;
 
 const USER_FONT: &str = "pomptty-user-font";
+const SYMBOL_FONT: &str = "pomptty-symbols";
+
+/// The system font database, scanned once per process (config reloads reuse it).
+fn font_db() -> &'static Database {
+    static DB: OnceLock<Database> = OnceLock::new();
+    DB.get_or_init(|| {
+        let mut db = Database::new();
+        db.load_system_fonts();
+        db
+    })
+}
 
 /// Apply the configured font to the egui context. Safe to call again on reload.
 pub fn apply(ctx: &egui::Context, config: &Config) {
@@ -45,7 +61,60 @@ pub fn apply(ctx: &egui::Context, config: &Config) {
         }
     }
 
+    match find_symbol_font(font_db()) {
+        Some((name, bytes, index)) => {
+            fonts.font_data.insert(
+                SYMBOL_FONT.to_owned(),
+                Arc::new(FontData {
+                    font: bytes.into(),
+                    index,
+                    tweak: FontTweak::default(),
+                }),
+            );
+            // Append: real glyphs and emoji still win; only the private-use
+            // icon range falls through to here.
+            for family in [FontFamily::Monospace, FontFamily::Proportional] {
+                fonts
+                    .families
+                    .entry(family)
+                    .or_default()
+                    .push(SYMBOL_FONT.to_owned());
+            }
+            log::info!("glyph fallback: {name:?}");
+        }
+        None => log::debug!("no Nerd/Powerline font found; icon glyphs may render as boxes"),
+    }
+
     ctx.set_fonts(fonts);
+}
+
+/// Pick an installed Nerd / Powerline font for the private-use icon range,
+/// preferring a Nerd Font, then a `Mono` variant, then a regular weight.
+fn find_symbol_font(db: &Database) -> Option<(String, Vec<u8>, u32)> {
+    let id = ["nerd font", "powerline"].iter().find_map(|keyword| {
+        db.faces()
+            .filter(|f| {
+                f.families
+                    .iter()
+                    .any(|(fam, _)| fam.to_lowercase().contains(keyword))
+            })
+            .min_by_key(|f| {
+                let not_mono = u8::from(
+                    !f.families
+                        .iter()
+                        .any(|(fam, _)| fam.to_lowercase().contains("mono")),
+                );
+                (not_mono, face_rank(f))
+            })
+            .map(|f| f.id)
+    })?;
+
+    let name = db
+        .face(id)
+        .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
+        .unwrap_or_default();
+    let (bytes, index) = db.with_face_data(id, |data, index| (data.to_vec(), index))?;
+    Some((name, bytes, index))
 }
 
 struct ResolvedFont {
@@ -77,15 +146,14 @@ fn resolve(spec: &str) -> Option<ResolvedFont> {
 }
 
 fn resolve_family(name: &str) -> Option<ResolvedFont> {
-    let mut db = Database::new();
-    db.load_system_fonts();
+    let db = font_db();
 
     let id = db
         .query(&Query {
             families: &[Family::Name(name)],
             ..Query::default()
         })
-        .or_else(|| best_face_ci(&db, name))?;
+        .or_else(|| best_face_ci(db, name))?;
 
     let post_script = db
         .face(id)
@@ -101,7 +169,7 @@ fn resolve_family(name: &str) -> Option<ResolvedFont> {
 
 /// Case-insensitive family match — `fontdb`'s own `query` compares names exactly
 /// — preferring the face nearest a regular weight and upright style.
-fn best_face_ci(db: &Database, name: &str) -> Option<fontdb::ID> {
+fn best_face_ci(db: &'static Database, name: &str) -> Option<fontdb::ID> {
     let want = name.to_lowercase();
     db.faces()
         .filter(|f| {

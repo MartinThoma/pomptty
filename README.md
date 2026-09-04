@@ -142,6 +142,14 @@ config.
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
 | `window` | `width` / `height` in logical pixels, and `decorations`: `"system"` (default) or `"custom"` — frameless, with pomptty's own tab strip as the title bar (best on a compositing window manager; takes effect on restart). |
 
+pomptty automatically adds an installed **Nerd Font / Powerline** font to the
+fallback chain, so powerline prompts and devicon themes render their icons rather
+than boxes — install one if you use such a prompt. Ligatures and per-glyph
+bold/italic aren't rendered yet (a terminal-backend limitation).
+
+The terminal **bell** (`\a`) flashes the window briefly, and flags the taskbar
+for attention if the window isn't focused.
+
 ### Theme
 
 Set `theme` to a builtin name:
