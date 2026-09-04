@@ -22,6 +22,7 @@
 #![allow(dead_code)] // parts are wired up across the M3 stages
 
 pub mod integration;
+pub mod log_store;
 pub mod record;
 
 use std::path::PathBuf;

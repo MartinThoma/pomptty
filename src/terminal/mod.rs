@@ -66,6 +66,26 @@ impl TerminalTab {
     pub fn has_running_child(&self) -> bool {
         has_child_process(self.backend.pty_id())
     }
+
+    /// The shell's current working directory, from `/proc/<pid>/cwd`. Used to
+    /// scope history search to "this directory". Linux-only; `None` elsewhere or
+    /// if the shell has exited.
+    pub fn shell_cwd(&self) -> Option<String> {
+        shell_cwd(self.backend.pty_id())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn shell_cwd(shell_pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{shell_pid}/cwd"))
+        .ok()?
+        .to_str()
+        .map(str::to_owned)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn shell_cwd(_shell_pid: u32) -> Option<String> {
+    None
 }
 
 /// True if any live (non-zombie) process has `shell_pid` as its parent.

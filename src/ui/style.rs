@@ -26,6 +26,8 @@ pub struct Surfaces {
     pub text_muted: Color32,
     pub text_faint: Color32,
     pub accent: Color32,
+    /// Success accent (a zero exit-status dot; block gutters later).
+    pub ok: Color32,
     /// Non-zero-exit / destructive accent (the close `×` halo; block gutters later).
     pub err: Color32,
 }
@@ -45,6 +47,7 @@ impl Surfaces {
             text_muted: mix(fg, bg, 0.38),
             text_faint: mix(fg, bg, 0.60),
             accent: hex(&p.blue),
+            ok: hex(&p.green),
             err: hex(&p.red),
         }
     }

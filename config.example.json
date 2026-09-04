@@ -59,5 +59,9 @@
     "width": 900.0,
     "height": 560.0,
     "decorations": "custom"
+  },
+  "history": {
+    "enabled": true,
+    "max_results": 50
   }
 }

@@ -10,8 +10,10 @@ use notify::{RecursiveMode, Watcher};
 
 use crate::config::Config;
 use crate::config::keybindings::{Action, Chord};
+use crate::history::log_store::LogStore;
 use crate::terminal::{TabId, TerminalTab};
 use crate::ui::chrome::{ChromeAction, TabStrip, TabView};
+use crate::ui::history_overlay::{HistoryOutcome, HistoryOverlay};
 use crate::ui::style::Surfaces;
 
 /// How many lines a "page" scroll moves. A rough constant is fine — the backend
@@ -74,6 +76,11 @@ pub struct PompttyApp {
     /// A tab whose close is waiting on the "a process is still running"
     /// confirmation, identified by id so a shifting `Vec` can't misfire it.
     pending_close: Option<TabId>,
+    /// Command history, read from the shell-hook logs. Refreshed when the
+    /// `Ctrl+R` overlay opens.
+    history: LogStore,
+    /// The `Ctrl+R` search overlay; `Some` while it is open.
+    history_overlay: Option<HistoryOverlay>,
     toast: Option<Toast>,
     /// When the terminal last rang the bell — drives a brief screen flash.
     bell_at: Option<Instant>,
@@ -124,6 +131,8 @@ impl PompttyApp {
             config_reload_rx,
             _config_watcher: watcher,
             pending_close: None,
+            history: LogStore::new(),
+            history_overlay: None,
             toast: None,
             bell_at: None,
             title_shown: String::new(),
@@ -469,6 +478,19 @@ impl PompttyApp {
         }
     }
 
+    /// Open the `Ctrl+R` history overlay. With history disabled in the config,
+    /// forward a real `Ctrl+R` to the shell instead so its own reverse-i-search
+    /// still works.
+    fn open_history_search(&mut self) {
+        if !self.config.history.enabled {
+            self.active_tab().write(vec![0x12]); // Ctrl+R
+            return;
+        }
+        self.history.refresh();
+        let cwd = self.active_tab().shell_cwd();
+        self.history_overlay = Some(HistoryOverlay::new(cwd));
+    }
+
     fn handle_bindings(&mut self, ctx: &egui::Context) {
         let mut hits: Vec<Action> = Vec::new();
         ctx.input_mut(|input| {
@@ -499,10 +521,10 @@ impl PompttyApp {
             Action::NextTab => self.focus_delta(1),
             Action::PrevTab => self.focus_delta(-1),
             Action::GotoTab(n) => self.goto_tab(n),
-            // Inert here: handled by the terminal widget, reserved for a later
-            // milestone, or filtered out before dispatch (see `Action::is_active`
-            // and `KeyBindings::compile`).
-            Action::Copy | Action::Paste | Action::HistorySearch | Action::Disabled => {}
+            Action::HistorySearch => self.open_history_search(),
+            // Inert here: handled by the terminal widget, or filtered out before
+            // dispatch (see `Action::is_active` and `KeyBindings::compile`).
+            Action::Copy | Action::Paste | Action::Disabled => {}
         }
     }
 }
@@ -521,8 +543,9 @@ impl eframe::App for PompttyApp {
             return;
         }
         self.pump_config_reload(&ctx);
-        // While the close-confirmation dialog is up, the keyboard belongs to it.
-        if self.pending_close.is_none() {
+        // While a modal (close confirmation, history search) is up, the keyboard
+        // belongs to it.
+        if self.pending_close.is_none() && self.history_overlay.is_none() {
             self.handle_bindings(&ctx);
         }
         if self.tabs.is_empty() {
@@ -560,9 +583,7 @@ impl eframe::App for PompttyApp {
                 }
             }
             ChromeAction::CloseTab(i) => self.request_close_tab(i, &ctx),
-            ChromeAction::OpenSearch => {
-                self.set_toast("History search (Ctrl+R) is not implemented yet");
-            }
+            ChromeAction::OpenSearch => self.open_history_search(),
             ChromeAction::Minimize => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             }
@@ -594,13 +615,39 @@ impl eframe::App for PompttyApp {
             ctx.animate_bool_with_time(egui::Id::new("pomptty_confirm_anim"), false, 0.0);
         }
 
+        if self.history_overlay.is_some() {
+            let dark = self.config.theme.is_dark();
+            let max_results = self.config.history.max_results;
+            let outcome = self.history_overlay.as_mut().unwrap().show(
+                &ctx,
+                &self.history,
+                max_results,
+                surfaces,
+                dark,
+            );
+            match outcome {
+                HistoryOutcome::None => {}
+                HistoryOutcome::Dismiss => self.history_overlay = None,
+                HistoryOutcome::Insert(cmd) => {
+                    self.history_overlay = None;
+                    self.active_tab().write(cmd.into_bytes());
+                }
+                HistoryOutcome::Run(cmd) => {
+                    self.history_overlay = None;
+                    let mut bytes = cmd.into_bytes();
+                    bytes.push(b'\r');
+                    self.active_tab().write(bytes);
+                }
+            }
+        }
+
         let panel = egui::Frame::new()
             .fill(surfaces.bg)
             .inner_margin(egui::Margin::same(TERMINAL_MARGIN));
         egui::CentralPanel::default().frame(panel).show(ui, |ui| {
             let tab = &mut self.tabs[self.active];
             let view = TerminalView::new(ui, &mut tab.backend)
-                .set_focus(self.pending_close.is_none())
+                .set_focus(self.pending_close.is_none() && self.history_overlay.is_none())
                 .set_theme(self.theme.clone())
                 .set_font(TerminalFont::new(FontSettings {
                     font_type: egui::FontId::monospace(self.font_size),

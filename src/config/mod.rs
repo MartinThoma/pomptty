@@ -42,6 +42,29 @@ pub struct Config {
     pub keybindings: KeyBindings,
     /// Initial window size, and how the window frame is drawn.
     pub window: WindowConfig,
+    /// The `Ctrl+R` command-history search.
+    pub history: HistoryConfig,
+}
+
+/// The `Ctrl+R` fuzzy history search (fed by the `pomptty --print-integration`
+/// shell hook).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HistoryConfig {
+    /// When `false`, `Ctrl+R` is handed to the shell's own reverse-i-search
+    /// instead of opening pomptty's overlay.
+    pub enabled: bool,
+    /// Most results to show in the overlay at once.
+    pub max_results: usize,
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_results: 50,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +112,7 @@ impl Default for Config {
             theme: ThemeConfig::default(),
             keybindings: KeyBindings::default(),
             window: WindowConfig::default(),
+            history: HistoryConfig::default(),
         }
     }
 }

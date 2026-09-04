@@ -57,7 +57,7 @@ the user adds `eval "$(pomptty --print-integration <shell>)"` to their rc.
   _(Custom Chrome-style window decorations moved to M4 — they're a look, not a
   tabs feature.)_
 
-## M3 — command history + `Ctrl+R` 🚧
+## M3 — command history + `Ctrl+R` ✅
 
 The escape-sequence route (OSC 133 / OSC 7) is a dead end — `vte` →
 `alacritty_terminal` → `egui_term` surface neither. A **shell hook** records
@@ -67,13 +67,15 @@ history instead; cwd comes from `/proc/<shell_pid>/cwd`.
 - [x] shell hooks: one append-log line per command (command, cwd, exit, start,
       duration), inert unless `$POMPTTY` is set, `$?`-transparent
 - [x] `CommandRecord` parse/format for the append-log line format
-- [ ] `LogStore`: read the `*.log` files, de-dup by command, rank by fuzzy score
+- [x] `LogStore`: read the `*.log` files, de-dup by command, rank by fuzzy score
       + recency/frequency (nucleo-matcher)
-- [ ] `ctrl+r` fuzzy-search overlay: ranked results, cwd + exit + "last run" shown
-- [ ] "this directory only" toggle
-- [ ] `Enter` inserts the command, `ctrl+Enter` runs it, `Esc` closes
-- [ ] `history` config section (enable/disable, max results)
-- [ ] README "Shell integration" section
+- [x] `ctrl+r` fuzzy-search overlay: ranked results, cwd + exit + "last run" shown
+- [x] "this directory only" toggle
+- [x] `Enter` inserts the command, `ctrl+Enter` runs it, `Esc` closes
+- [x] `history` config section (`enabled`, `max_results`)
+- [x] README "Shell integration" section
+
+Later: SQLite + FTS5 store and `~/.bash_history` import (see _Later / polish_).
 
 ## M4 — stunning by default ★
 

@@ -35,9 +35,9 @@ pub enum Action {
     /// Jump to tab N (1-based); a value past the last tab jumps to the last.
     /// In the config: `"goto-tab-3"`.
     GotoTab(u8),
-    /// Open the `Ctrl+R` history search — reserved; wired up in the history
-    /// milestone. Until then the binding is inert and the keystroke is passed
-    /// through to the shell.
+    /// Open the `Ctrl+R` fuzzy history-search overlay. With
+    /// `"history": { "enabled": false }` in the config the keystroke is handed
+    /// to the shell's own reverse-i-search instead.
     HistorySearch,
     /// Turn a default binding off. Put `"<chord>": "disabled"` in the config to
     /// suppress a shortcut that would otherwise come from the defaults.
@@ -98,7 +98,7 @@ impl Action {
             self,
             // Copy/Paste are handled inside the terminal widget itself, so the
             // app layer leaves those keystrokes alone.
-            Action::Copy | Action::Paste | Action::HistorySearch | Action::Disabled
+            Action::Copy | Action::Paste | Action::Disabled
         )
     }
 }
@@ -356,7 +356,8 @@ mod tests {
         assert!(Action::NewTab.is_active());
         assert!(Action::NextTab.is_active());
         assert!(Action::GotoTab(2).is_active());
-        assert!(!Action::HistorySearch.is_active());
+        assert!(Action::HistorySearch.is_active());
+        assert!(!Action::Disabled.is_active());
     }
 
     #[test]

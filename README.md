@@ -19,6 +19,7 @@ the PTY. Linux is the only supported platform today; macOS and Windows are on th
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Shell integration](#shell-integration)
 - [Configuration](#configuration)
 - [Development](#development)
 - [Roadmap](#roadmap)
@@ -37,6 +38,9 @@ the PTY. Linux is the only supported platform today; macOS and Windows are on th
   inline palette. The surrounding UI is tinted to match the terminal background.
 - **Layered keybindings** — your bindings sit on top of the defaults, so new
   default shortcuts appear automatically and any default can be switched off.
+- **Fuzzy history search** (<kbd>Ctrl</kbd>+<kbd>R</kbd>) — an overlay ranked by
+  relevance, recency and frequency, showing each command's directory, exit
+  status and age; opt-in via a [one-line shell hook](#shell-integration).
 - Font zoom, scrollback keys, and clear-screen.
 - Mouse selection with copy/paste
   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> /
@@ -106,7 +110,7 @@ the file, and binding a chord to `"disabled"` removes a default
 | `close-tab` | `ctrl+shift+w` | closing the last tab quits |
 | `next-tab` / `prev-tab` | `ctrl+tab` / `ctrl+shift+tab` (also `ctrl+shift+pagedown` / `pageup`) | wraps around |
 | `goto-tab-1` … `goto-tab-9` | `ctrl+1` … `ctrl+9` | jump to that tab; `goto-tab-9` is the last tab |
-| `history-search` | `ctrl+r` | reserved for M3; passed through to the shell for now |
+| `history-search` | `ctrl+r` | opens the fuzzy history overlay (see [Shell integration](#shell-integration)); falls through to the shell when `history.enabled` is `false` |
 | `disabled` | — | suppresses a default binding |
 
 ### Mouse
@@ -120,6 +124,41 @@ the file, and binding a chord to `"disabled"` removes a default
 Closing a tab that still has a child process running in it (an editor, `ssh`, a
 build) asks for confirmation first. If that process exits while the prompt is
 open, the tab closes as originally requested.
+
+## Shell integration
+
+pomptty records command history through a **shell hook** rather than by scraping
+the terminal, so nothing is recorded until you opt in. Add one line to your
+shell's rc file:
+
+```sh
+# ~/.bashrc  /  ~/.zshrc
+eval "$(pomptty --print-integration bash)"   # or: zsh
+
+# ~/.config/fish/config.fish
+pomptty --print-integration fish | source
+```
+
+The hook only does anything inside pomptty (it checks for `$POMPTTY`), and it
+leaves `$?` untouched. For each command it appends one line — start time,
+duration, exit code, working directory, and the command — to
+`$POMPTTY_HISTORY_DIR/<shell-pid>.log`
+(`~/.local/state/pomptty/history/` by default).
+
+Press <kbd>Ctrl</kbd>+<kbd>R</kbd> (or click the &#9906; in the tab strip) to
+search it:
+
+| Key | Action |
+|---|---|
+| type | fuzzy-filter; results rank by relevance, then recency and frequency |
+| <kbd>↑</kbd> / <kbd>↓</kbd>, <kbd>Ctrl</kbd>+<kbd>P</kbd> / <kbd>Ctrl</kbd>+<kbd>N</kbd> | move the selection |
+| <kbd>Tab</kbd> | toggle "this directory only" |
+| <kbd>Enter</kbd> | put the command on the prompt |
+| <kbd>Ctrl</kbd>+<kbd>Enter</kbd> | put it on the prompt and run it |
+| <kbd>Esc</kbd> | close |
+
+Set `"history": { "enabled": false }` to disable the overlay and let
+<kbd>Ctrl</kbd>+<kbd>R</kbd> reach the shell's own reverse-i-search instead.
 
 ## Configuration
 
@@ -141,6 +180,7 @@ config.
 | `theme` | A builtin name or an inline palette object (see below). |
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
 | `window` | `width` / `height` in logical pixels, and `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly; takes effect on restart). |
+| `history` | `enabled` (default `true`) — whether <kbd>Ctrl</kbd>+<kbd>R</kbd> opens the overlay (see [Shell integration](#shell-integration)); `max_results` (default `50`) — rows shown at once. |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the
 fallback chain, so powerline prompts and devicon themes render their icons rather
@@ -195,16 +235,16 @@ Source layout:
 | `src/app.rs` | the eframe app: tabs, event loop, dispatch |
 | `src/config/` | config loading, themes, keybindings |
 | `src/terminal/` | one PTY-backed terminal tab |
-| `src/ui/` | the tab strip and other chrome |
-| `src/history/` | command-history scaffolding for M3 |
+| `src/ui/` | the tab strip, history overlay, and other chrome |
+| `src/history/` | the shell-integration hook, log format, and history store |
 
 Contributions are welcome. Please run `make fmt lint test` before opening a pull
 request.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Up next (M3): persistent command history with a
-<kbd>Ctrl</kbd>+<kbd>R</kbd> fuzzy-search overlay.
+See [ROADMAP.md](ROADMAP.md). Up next (M4/M5): a design pass on the chrome, and
+command *blocks* — navigable, foldable, rerunnable prompt→output units.
 
 ## License
 
