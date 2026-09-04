@@ -93,8 +93,10 @@ The reason someone opens the screenshot and installs it.
 
 - [x] **Slice 2 — frameless Chrome-style window** (opt-in, `window.decorations:
       "custom"`): tab strip is the title bar, min/max/close, strip drag region,
-      resize edges, hairline border. No client shadow / rounded corners on X11;
-      some X11 WMs (Marco) size an undecorated window to the whole work area.
+      resize edges, hairline border; the configured size is re-asserted on the
+      first frame (some X11 WMs ignore it for an undecorated window). No client
+      shadow / rounded corners on X11; Marco won't honour un-maximize on a CSD
+      window (drag/resize still work).
 
 **Slice 3 — glyph fallback + bell**:
 

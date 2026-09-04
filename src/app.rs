@@ -44,6 +44,10 @@ pub struct PompttyApp {
     /// Whether pomptty draws its own window frame (from `window.decorations`;
     /// fixed at startup — the viewport flag can't change at runtime).
     custom_chrome: bool,
+    /// For custom chrome: the configured size to re-assert on the first frame
+    /// (some X11 WMs ignore the initial size of an undecorated window). `None`
+    /// once done.
+    initial_size: Option<egui::Vec2>,
     /// The live terminal font size in points (changed by the zoom keys).
     font_size: f32,
     /// The size `font-reset` returns to: the last value seen in the config file
@@ -99,9 +103,12 @@ impl PompttyApp {
 
         let (config_reload_rx, watcher) = spawn_config_watcher(&config_path, ctx.clone());
 
+        let custom_chrome = config.window.decorations == crate::config::Decoration::Custom;
         let mut app = Self {
             theme: config.theme.terminal_theme(),
-            custom_chrome: config.window.decorations == crate::config::Decoration::Custom,
+            custom_chrome,
+            initial_size: custom_chrome
+                .then(|| egui::vec2(config.window.width, config.window.height)),
             font_size: config.font_size,
             configured_font_size: config.font_size,
             font_dirty: false,
@@ -503,6 +510,12 @@ impl PompttyApp {
 impl eframe::App for PompttyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // Re-assert the configured window size once — a bare undecorated window
+        // is left at whatever size the WM chose on some X11 setups.
+        if let Some(size) = self.initial_size.take() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+        }
 
         if self.pump_pty_events(&ctx) {
             return;
