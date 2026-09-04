@@ -41,7 +41,7 @@ the user adds `eval "$(pomptty --print-integration <shell>)"` to their rc.
 - [x] custom font from a file path or installed family name (`font_family`)
 - [x] `TERM` / `COLORTERM` exported for the shell (`egui_term` doesn't)
 
-## M2 — tabs 🚧
+## M2 — tabs ✅
 
 - [x] `Vec<TerminalTab>` + active index + monotonic `TabId`
 - [x] new / close / next / prev tab (keyboard + chrome)
@@ -51,8 +51,10 @@ the user adds `eval "$(pomptty --print-integration <shell>)"` to their rc.
 - [x] `+` new-tab button, window title follows the active tab
 - [x] close last tab → quit; tab whose shell exits is removed
 - [x] "close tab" confirmation when a child process is still running
-- [ ] drag-to-reorder tabs
-- [ ] new tab inherits the active tab's working directory (`/proc/<pid>/cwd`)
+- [x] drag-to-reorder tabs (live shuffle: grabbed tab follows the cursor,
+      neighbours slide, drop settles into the new slot)
+- [x] new tab inherits the active tab's working directory
+      (`egui_term` `working_directory` ← `/proc/<pid>/cwd`)
 
   _(Custom Chrome-style window decorations moved to M4 — they're a look, not a
   tabs feature.)_

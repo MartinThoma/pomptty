@@ -12,6 +12,11 @@ pub enum ChromeAction {
     NewTab,
     SelectTab(usize),
     CloseTab(usize),
+    /// A tab was dragged from index `from` to index `to` (drag-to-reorder).
+    MoveTab {
+        from: usize,
+        to: usize,
+    },
     /// The `Ctrl+R` search affordance was clicked.
     OpenSearch,
     /// Custom-decoration window controls (only when `window_controls`).
@@ -50,6 +55,8 @@ const BTN_SIZE: f32 = 24.0;
 const TAB_ROUNDING: u8 = 8;
 /// Tab-open animation length, seconds.
 const ENTER_SECS: f32 = 0.16;
+/// How fast a tab slides to a new slot (reorder, or a neighbour closing).
+const POS_SECS: f32 = 0.12;
 
 impl TabStrip<'_> {
     /// Returns the chrome action plus `true` if an animation is still running
@@ -106,28 +113,19 @@ impl TabStrip<'_> {
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.spacing_mut().item_spacing = vec2(TAB_GAP, 0.0);
-                                let w = tab_width(ui.available_width(), self.tabs.len());
-                                for (i, tab) in self.tabs.iter().enumerate() {
-                                    let enter = enter_t(ui, tab.id, now);
-                                    animating |= enter < 1.0;
-                                    let r = draw_tab(
-                                        ui,
-                                        &s,
-                                        tab.title,
-                                        i == self.active,
-                                        w,
-                                        enter,
-                                        Id::new(("pomptty_tab", tab.id)),
-                                        &mut action,
-                                        i,
-                                    );
-                                    if i == self.active {
-                                        active_rect = Some(r);
-                                    }
+                                let (act, anim, arect) =
+                                    tab_row(ui, &s, self.tabs, self.active, now);
+                                animating |= anim;
+                                if act != ChromeAction::None {
+                                    action = act;
                                 }
-                                if icon_button(ui, &s, Glyph::Plus)
-                                    .on_hover_text("New tab  ·  Ctrl+Shift+T")
-                                    .clicked()
+                                if arect.is_some() {
+                                    active_rect = arect;
+                                }
+                                if load_drag(ui).is_none()
+                                    && icon_button(ui, &s, Glyph::Plus)
+                                        .on_hover_text("New tab  ·  Ctrl+Shift+T")
+                                        .clicked()
                                 {
                                     action = ChromeAction::NewTab;
                                 }
@@ -225,60 +223,260 @@ fn enter_t(ui: &egui::Ui, id: TabId, now: f64) -> f32 {
     egui::emath::easing::cubic_out(t)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_tab(
+/// A tab currently being dragged, kept in egui memory so the strip stays
+/// stateless between frames. `grab_dx` is the pointer's offset from the tab's
+/// left edge at the moment it was grabbed.
+#[derive(Clone, Copy)]
+struct DragState {
+    tab_id: TabId,
+    grab_dx: f32,
+}
+
+const DRAG_KEY: &str = "pomptty_tab_drag";
+
+fn load_drag(ui: &egui::Ui) -> Option<DragState> {
+    ui.ctx()
+        .data(|d| d.get_temp::<DragState>(Id::new(DRAG_KEY)))
+}
+fn store_drag(ui: &egui::Ui, ds: DragState) {
+    ui.ctx().data_mut(|d| d.insert_temp(Id::new(DRAG_KEY), ds));
+}
+fn clear_drag(ui: &egui::Ui) {
+    ui.ctx()
+        .data_mut(|d| d.remove::<DragState>(Id::new(DRAG_KEY)));
+}
+
+/// The close-`×` hit area inside a tab.
+fn close_rect_of(tab: Rect) -> Rect {
+    Rect::from_center_size(
+        pos2(tab.right() - 6.0 - CLOSE_SIZE / 2.0, tab.center().y),
+        Vec2::splat(CLOSE_SIZE),
+    )
+}
+
+/// Which slot a tab whose centre sits at `centre_x` belongs in, given the row
+/// starts at `left` and each slot (tab + gap) is `stride` wide. Clamped to
+/// `0..n`.
+fn drop_index(centre_x: f32, left: f32, stride: f32, n: usize) -> usize {
+    if n == 0 || stride <= 0.0 {
+        return 0;
+    }
+    let slot = ((centre_x - left) / stride).floor();
+    (slot.max(0.0) as usize).min(n - 1)
+}
+
+/// Lay out and paint the whole tab row, handling drag-to-reorder. Returns any
+/// chrome action, whether an animation is still running, and the active tab's
+/// on-screen rect (for the accent underline).
+fn tab_row(
     ui: &mut egui::Ui,
+    s: &Surfaces,
+    tabs: &[TabView<'_>],
+    active: usize,
+    now: f64,
+) -> (ChromeAction, bool, Option<Rect>) {
+    let n = tabs.len();
+    if n == 0 {
+        return (ChromeAction::None, false, None);
+    }
+    let mut action = ChromeAction::None;
+    let mut animating = false;
+
+    let tab_w = tab_width(ui.available_width(), n);
+    let stride = tab_w + TAB_GAP;
+    let enters: Vec<f32> = tabs.iter().map(|t| enter_t(ui, t.id, now)).collect();
+    let widths: Vec<f32> = enters.iter().map(|e| tab_w * e.max(0.02)).collect();
+    animating |= enters.iter().any(|e| *e < 1.0);
+
+    // Resting slot x for each tab (running sum, so a still-opening tab pushes its
+    // neighbours over rather than overlapping them).
+    let mut total = 0.0_f32;
+    let rel_x: Vec<f32> = widths
+        .iter()
+        .map(|w| {
+            let x = total;
+            total += w + TAB_GAP;
+            x
+        })
+        .collect();
+    total = (total - TAB_GAP).max(0.0);
+
+    let (row_rect, _) = ui.allocate_exact_size(vec2(total, TAB_HEIGHT), Sense::hover());
+    let left = row_rect.left();
+    let top = row_rect.top();
+    let xs: Vec<f32> = rel_x.iter().map(|x| left + x).collect();
+
+    let drag = load_drag(ui);
+    let pointer = ui.input(|i| i.pointer.interact_pos());
+
+    let mut rects: Vec<Rect> = Vec::with_capacity(n);
+    let mut dragged: Option<usize> = None;
+    let mut active_rect = None;
+
+    for (i, tab) in tabs.iter().enumerate() {
+        let is_dragged = drag.map(|d| d.tab_id) == Some(tab.id);
+        let x = match (is_dragged, pointer, drag) {
+            (true, Some(p), Some(d)) => {
+                (p.x - d.grab_dx).clamp(left, (left + total - widths[i]).max(left))
+            }
+            (false, _, _) => {
+                let ax = ui.ctx().animate_value_with_time(
+                    Id::new(("pomptty_tab_x", tab.id)),
+                    xs[i],
+                    POS_SECS,
+                );
+                animating |= (ax - xs[i]).abs() > 0.5;
+                ax
+            }
+            _ => xs[i],
+        };
+        let r = Rect::from_min_size(
+            pos2(x, top - if is_dragged { 2.0 } else { 0.0 }),
+            vec2(widths[i], TAB_HEIGHT),
+        );
+        rects.push(r);
+
+        let resp = ui.interact(r, Id::new(("pomptty_tab", tab.id)), Sense::click_and_drag());
+        if resp.drag_started() {
+            if let Some(p) = pointer {
+                store_drag(
+                    ui,
+                    DragState {
+                        tab_id: tab.id,
+                        grab_dx: p.x - x,
+                    },
+                );
+            }
+            action = ChromeAction::SelectTab(i);
+        }
+        if resp.drag_stopped() {
+            clear_drag(ui);
+        }
+
+        if is_dragged {
+            // Pin the eased position to the cursor so releasing settles smoothly
+            // into the tab's new slot.
+            ui.ctx()
+                .animate_value_with_time(Id::new(("pomptty_tab_x", tab.id)), x, 0.0);
+            let to = drop_index(r.center().x, left, stride, n);
+            if to != i {
+                action = ChromeAction::MoveTab { from: i, to };
+            }
+            animating = true;
+            dragged = Some(i);
+            if i == active {
+                active_rect = Some(r);
+            }
+            continue;
+        }
+
+        resp.clone().on_hover_text(tab.title);
+        paint_tab(
+            ui,
+            s,
+            tab.title,
+            i == active,
+            enters[i],
+            r,
+            resp.hovered(),
+            false,
+        );
+
+        let on_close = pointer.is_some_and(|p| close_rect_of(r).contains(p));
+        if (resp.clicked() && on_close) || resp.clicked_by(egui::PointerButton::Middle) {
+            action = ChromeAction::CloseTab(i);
+        } else if resp.clicked() {
+            action = ChromeAction::SelectTab(i);
+        }
+        if i == active {
+            active_rect = Some(r);
+        }
+    }
+
+    match dragged {
+        Some(i) => paint_tab(
+            ui,
+            s,
+            tabs[i].title,
+            i == active,
+            enters[i],
+            rects[i],
+            false,
+            true,
+        ),
+        // A drag whose tab vanished (e.g. its shell exited): drop the stale state.
+        None if drag.is_some() => clear_drag(ui),
+        None => {}
+    }
+
+    (action, animating, active_rect)
+}
+
+/// Paint one tab at `rect`. `dragging` gives it a lifted look; `enter` fades and
+/// the caller has already narrowed `rect` for the open animation.
+#[allow(clippy::too_many_arguments)]
+fn paint_tab(
+    ui: &egui::Ui,
     s: &Surfaces,
     title: &str,
     selected: bool,
-    target_width: f32,
     enter: f32,
-    id: Id,
-    action: &mut ChromeAction,
-    index: usize,
-) -> Rect {
-    let width = target_width * enter.max(0.02);
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, TAB_HEIGHT), Sense::click());
-    let hovered = resp.hovered();
-    let show_close = selected || hovered;
-
-    let fill = if selected {
-        s.bg
-    } else if hovered {
-        s.hover
-    } else {
-        Color32::TRANSPARENT
-    };
+    rect: Rect,
+    hovered: bool,
+    dragging: bool,
+) {
+    let a = enter.clamp(0.0, 1.0);
     let rounding = CornerRadius {
         nw: TAB_ROUNDING,
         ne: TAB_ROUNDING,
         sw: 0,
         se: 0,
     };
-    ui.painter().rect_filled(rect, rounding, fill);
-    if !selected && !hovered {
+
+    if dragging {
+        for (dy, alpha) in [(3.0_f32, 55_u8), (7.0, 24), (12.0, 9)] {
+            ui.painter().rect_filled(
+                Rect::from_min_size(rect.min + vec2(-1.0, dy), rect.size() + vec2(2.0, 0.0)),
+                rounding,
+                Color32::from_black_alpha(alpha),
+            );
+        }
+    }
+
+    let fill = if dragging || selected {
+        s.bg
+    } else if hovered {
+        s.hover
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter()
+        .rect_filled(rect, rounding, fill.gamma_multiply(a));
+
+    if !dragging && !selected && !hovered {
         // Faint divider between resting tabs.
         ui.painter().vline(
             (rect.right() + TAB_GAP / 2.0).round(),
             (rect.top() + 9.0)..=(rect.bottom() - 9.0),
-            Stroke::new(1.0, s.text_faint.gamma_multiply(0.35)),
+            Stroke::new(1.0, s.text_faint.gamma_multiply(0.35 * a)),
         );
     }
 
-    let close_rect = Rect::from_center_size(
-        pos2(rect.right() - 6.0 - CLOSE_SIZE / 2.0, rect.center().y),
-        Vec2::splat(CLOSE_SIZE),
-    );
-    let close = ui.interact(close_rect, id.with("close"), Sense::click());
-    let text_color = if selected { s.text } else { s.text_muted };
-    if show_close && width > CLOSE_SIZE + TAB_PAD {
-        paint_close(ui, close_rect, &close, s);
+    let show_close = (selected || hovered) && !dragging && rect.width() > CLOSE_SIZE + TAB_PAD;
+    let close_rect = close_rect_of(rect);
+    if show_close {
+        paint_close(ui, close_rect, ui.rect_contains_pointer(close_rect), s);
     }
 
-    let clip_right = if show_close && width > CLOSE_SIZE + TAB_PAD {
+    let clip_right = if show_close {
         close_rect.left() - 4.0
     } else {
         rect.right() - 8.0
+    };
+    let text_color = if selected || dragging {
+        s.text
+    } else {
+        s.text_muted
     };
     let text_clip = Rect::from_min_max(
         pos2(rect.left() + TAB_PAD, rect.top()),
@@ -289,29 +487,13 @@ fn draw_tab(
         let galley = ui.painter().layout_no_wrap(
             truncate(title, budget),
             egui::FontId::proportional(13.0),
-            text_color,
+            text_color.gamma_multiply(a),
         );
         let pos = pos2(text_clip.left(), rect.center().y - galley.size().y / 2.0);
         ui.painter()
             .with_clip_rect(text_clip)
-            .galley(pos, galley, text_color);
+            .galley(pos, galley, text_color.gamma_multiply(a));
     }
-
-    resp.clone().on_hover_text(title);
-
-    let on_close = ui
-        .input(|i| i.pointer.interact_pos())
-        .is_some_and(|p| close_rect.contains(p));
-    if close.clicked()
-        || (resp.clicked() && on_close)
-        || resp.clicked_by(egui::PointerButton::Middle)
-    {
-        *action = ChromeAction::CloseTab(index);
-    } else if resp.clicked() {
-        *action = ChromeAction::SelectTab(index);
-    }
-
-    rect
 }
 
 /// Width for each tab: share the available space, Chrome-style, clamped.
@@ -336,12 +518,12 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 /// `×` drawn as strokes (no font dependency), with a hover halo.
-fn paint_close(ui: &egui::Ui, rect: Rect, resp: &egui::Response, s: &Surfaces) {
+fn paint_close(ui: &egui::Ui, rect: Rect, hovered: bool, s: &Surfaces) {
     let p = ui.painter();
-    if resp.hovered() {
+    if hovered {
         p.circle_filled(rect.center(), CLOSE_SIZE / 2.0, s.err.gamma_multiply(0.85));
     }
-    let color = if resp.hovered() {
+    let color = if hovered {
         Color32::WHITE
     } else {
         s.text_faint
@@ -420,7 +602,22 @@ fn icon_button(ui: &mut egui::Ui, s: &Surfaces, glyph: Glyph) -> egui::Response 
 
 #[cfg(test)]
 mod tests {
-    use super::{TAB_MAX_WIDTH, TAB_MIN_WIDTH, tab_width, truncate};
+    use super::{TAB_MAX_WIDTH, TAB_MIN_WIDTH, drop_index, tab_width, truncate};
+
+    #[test]
+    fn drop_index_maps_a_centre_to_its_slot() {
+        // Row at x=100, 5 tabs, slot stride 80 (tab 76 + gap 4).
+        let (left, stride, n) = (100.0, 80.0, 5);
+        // A resting tab's centre is left + i*stride + ~half a tab → its own slot.
+        assert_eq!(drop_index(100.0 + 38.0, left, stride, n), 0);
+        assert_eq!(drop_index(100.0 + 2.0 * 80.0 + 38.0, left, stride, n), 2);
+        // Dragged past the next boundary.
+        assert_eq!(drop_index(100.0 + 80.0 + 45.0, left, stride, n), 1);
+        assert_eq!(drop_index(100.0 + 2.0 * 80.0 - 5.0, left, stride, n), 1);
+        // Clamped at both ends.
+        assert_eq!(drop_index(-500.0, left, stride, n), 0);
+        assert_eq!(drop_index(9_999.0, left, stride, n), n - 1);
+    }
 
     #[test]
     fn tab_width_is_clamped() {

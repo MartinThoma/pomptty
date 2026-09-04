@@ -27,9 +27,9 @@ the PTY. Linux is the only supported platform today; macOS and Windows are on th
 
 ## Features
 
-- **Tabs** — open, close, and switch tabs by keyboard or mouse; each tab shows
-  the title set by the shell (OSC 0/2), and the window title follows the active
-  tab.
+- **Tabs** — open, close, switch, and drag-to-reorder by keyboard or mouse; each
+  tab shows the title set by the shell (OSC 0/2), the window title follows the
+  active tab, and a new tab opens in the active tab's working directory.
 - **Live configuration reload** — save `config.json` and the change applies
   immediately (or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>). A
   malformed file is never overwritten: the last good config is kept and the error
@@ -117,7 +117,9 @@ the file, and binding a chord to `"disabled"` removes a default
 
 - Click a tab to focus it; click `×` or middle-click to close it; click `+` to
   open a new one.
-- Click and drag to select; selected text is available to copy.
+- Drag a tab sideways to reorder it.
+- Click and drag inside the terminal to select; selected text is available to
+  copy.
 
 ### Closing a busy tab
 

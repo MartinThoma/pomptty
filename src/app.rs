@@ -106,6 +106,7 @@ impl PompttyApp {
             pty_events_tx.clone(),
             config.shell.clone(),
             config.shell_args.clone(),
+            None, // the first tab starts in pomptty's own working directory
         )?;
 
         let (config_reload_rx, watcher) = spawn_config_watcher(&config_path, ctx.clone());
@@ -221,14 +222,21 @@ impl PompttyApp {
         &mut self.tabs[self.active]
     }
 
-    /// Open a new tab running the configured shell and switch to it.
+    /// Open a new tab running the configured shell and switch to it. The new
+    /// tab starts in the active tab's working directory.
     fn spawn_tab(&mut self, ctx: &egui::Context) {
+        let cwd = self
+            .tabs
+            .get(self.active)
+            .and_then(|t| t.shell_cwd())
+            .map(std::path::PathBuf::from);
         match TerminalTab::new(
             self.next_tab_id,
             ctx.clone(),
             self.pty_events_tx.clone(),
             self.config.shell.clone(),
             self.config.shell_args.clone(),
+            cwd,
         ) {
             Ok(tab) => {
                 log::info!("opened tab {}", tab.id);
@@ -238,6 +246,18 @@ impl PompttyApp {
             }
             Err(e) => self.set_toast(format!("Could not open a new tab: {e:#}")),
         }
+    }
+
+    /// Move the tab at `from` to index `to` (drag-to-reorder), keeping the
+    /// active tab selected wherever it lands.
+    fn move_tab(&mut self, from: usize, to: usize) {
+        let n = self.tabs.len();
+        if from >= n || to >= n || from == to {
+            return;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.active = remap_index(self.active, from, to);
     }
 
     /// Close tab `idx`, but if a process is still running in it, raise the
@@ -583,6 +603,7 @@ impl eframe::App for PompttyApp {
                 }
             }
             ChromeAction::CloseTab(i) => self.request_close_tab(i, &ctx),
+            ChromeAction::MoveTab { from, to } => self.move_tab(from, to),
             ChromeAction::OpenSearch => self.open_history_search(),
             ChromeAction::Minimize => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -744,6 +765,20 @@ fn resize_edges(ui: &egui::Ui, ctx: &egui::Context) {
     }
 }
 
+/// Where index `idx` lands after the element at `from` is removed and
+/// re-inserted at `to`. Used to keep the active tab selected across a reorder.
+fn remap_index(idx: usize, from: usize, to: usize) -> usize {
+    if idx == from {
+        to
+    } else if from < idx && idx <= to {
+        idx - 1
+    } else if to <= idx && idx < from {
+        idx + 1
+    } else {
+        idx
+    }
+}
+
 /// Step `start` in direction `dir` (+/-) in 0.5pt increments until `cell_width`
 /// (the terminal's per-cell advance, floored to whole pixels) differs from where
 /// it started, or a font bound is hit. This keeps every zoom keypress producing
@@ -813,7 +848,25 @@ fn spawn_config_watcher(
 
 #[cfg(test)]
 mod tests {
-    use super::{FONT_MAX, FONT_MIN, snap_zoom};
+    use super::{FONT_MAX, FONT_MIN, remap_index, snap_zoom};
+
+    #[test]
+    fn remap_index_tracks_the_active_tab_across_a_reorder() {
+        // Drag tab 0 to slot 2: [A B C D] -> [B C A D].
+        assert_eq!(remap_index(0, 0, 2), 2); // the dragged tab itself
+        assert_eq!(remap_index(1, 0, 2), 0); // B shifts left
+        assert_eq!(remap_index(2, 0, 2), 1); // C shifts left
+        assert_eq!(remap_index(3, 0, 2), 3); // D untouched
+
+        // Drag tab 3 to slot 1: [A B C D] -> [A D B C].
+        assert_eq!(remap_index(3, 3, 1), 1);
+        assert_eq!(remap_index(1, 3, 1), 2);
+        assert_eq!(remap_index(2, 3, 1), 3);
+        assert_eq!(remap_index(0, 3, 1), 0);
+
+        // No-op.
+        assert_eq!(remap_index(2, 2, 2), 2);
+    }
 
     /// A stand-in for a monospace face: ~0.6pt of advance per point, floored to
     /// whole pixels the way `egui_term` does.

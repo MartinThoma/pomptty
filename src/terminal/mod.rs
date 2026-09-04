@@ -1,6 +1,7 @@
 //! One terminal pane: a PTY-backed `egui_term` session plus its display state.
 //! The app owns a `Vec` of these, one per tab.
 
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use anyhow::{Context, Result};
@@ -22,6 +23,7 @@ impl TerminalTab {
         pty_events: Sender<(TabId, PtyEvent)>,
         shell: Option<String>,
         shell_args: Vec<String>,
+        cwd: Option<PathBuf>,
     ) -> Result<Self> {
         let shell = shell
             .or_else(|| std::env::var("SHELL").ok())
@@ -37,7 +39,7 @@ impl TerminalTab {
             BackendSettings {
                 shell,
                 args: shell_args,
-                ..Default::default()
+                working_directory: cwd.filter(|p| p.is_dir()),
             },
         )
         .context("failed to start the shell process")?;
