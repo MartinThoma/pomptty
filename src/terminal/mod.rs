@@ -12,7 +12,10 @@ pub type TabId = u64;
 
 pub struct TerminalTab {
     pub id: TabId,
+    /// The title the shell last set (OSC 0/2).
     pub title: String,
+    /// A user-set name (context-menu "Rename"). Wins over `title` until cleared.
+    pub manual_title: Option<String>,
     pub backend: TerminalBackend,
 }
 
@@ -47,8 +50,15 @@ impl TerminalTab {
         Ok(Self {
             id,
             title: format!("Terminal {id}"),
+            manual_title: None,
             backend,
         })
+    }
+
+    /// The name to show for this tab: the user's override if set, else the
+    /// shell-set title.
+    pub fn display_title(&self) -> &str {
+        self.manual_title.as_deref().unwrap_or(&self.title)
     }
 
     /// Scroll the viewport by `lines` (positive = towards history).

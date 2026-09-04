@@ -40,12 +40,14 @@
     "ctrl+minus": "font-decrease",
     "ctrl+plus": "font-increase",
     "ctrl+r": "history-search",
+    "ctrl+shift+a": "tab-search",
     "ctrl+shift+c": "copy",
     "ctrl+shift+k": "clear",
+    "ctrl+shift+p": "omnibox",
     "ctrl+shift+pagedown": "next-tab",
     "ctrl+shift+pageup": "prev-tab",
     "ctrl+shift+r": "reload-config",
-    "ctrl+shift+t": "new-tab",
+    "ctrl+shift+t": "reopen-tab",
     "ctrl+shift+tab": "prev-tab",
     "ctrl+shift+v": "paste",
     "ctrl+shift+w": "close-tab",
@@ -63,5 +65,8 @@
   "history": {
     "enabled": true,
     "max_results": 50
+  },
+  "session": {
+    "restore": true
   }
 }

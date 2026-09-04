@@ -10,6 +10,7 @@ use egui::{Align, Color32, FontId, Key, Modifiers, Rect, Sense, Stroke, pos2, ve
 
 use crate::history::log_store::{Hit, LogStore, humanize_since};
 use crate::ui::style::Surfaces;
+use crate::ui::util::collapse_home;
 
 /// How far `PageUp` / `PageDown` jump in the result list.
 const PAGE_JUMP: usize = 8;
@@ -297,7 +298,9 @@ fn draw_row(ui: &mut egui::Ui, s: Surfaces, hit: &Hit, selected: bool) -> egui::
     resp
 }
 
-fn meta_text(hit: &Hit) -> String {
+/// The "×N   3m ago" run-count + relative-age label shown on a history row.
+/// Also used by the omnibox's History section.
+pub(crate) fn meta_text(hit: &Hit) -> String {
     let age = humanize_since(hit.last_run, SystemTime::now());
     if hit.count > 1 {
         format!("×{}    {age}", hit.count)
@@ -306,8 +309,9 @@ fn meta_text(hit: &Hit) -> String {
     }
 }
 
-/// A small magnifier icon, painted so it needs no glyph font.
-fn search_icon(ui: &mut egui::Ui, s: Surfaces) {
+/// A small magnifier icon, painted so it needs no glyph font. Also used by the
+/// omnibox's search field.
+pub(crate) fn search_icon(ui: &mut egui::Ui, s: Surfaces) {
     let (rect, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
     let c = rect.center() - vec2(1.0, 1.0);
     let stroke = Stroke::new(1.6, s.text_muted);
@@ -315,21 +319,6 @@ fn search_icon(ui: &mut egui::Ui, s: Surfaces) {
     p.circle_stroke(c, 4.2, stroke);
     let a = c + vec2(3.0, 3.0);
     p.line_segment([a, a + vec2(3.8, 3.8)], stroke);
-}
-
-/// Replace a leading `$HOME` with `~`.
-fn collapse_home(path: &str) -> String {
-    if let Ok(home) = std::env::var("HOME")
-        && !home.is_empty()
-    {
-        if path == home {
-            return "~".to_owned();
-        }
-        if let Some(rest) = path.strip_prefix(&format!("{home}/")) {
-            return format!("~/{rest}");
-        }
-    }
-    path.to_owned()
 }
 
 #[cfg(test)]
@@ -352,14 +341,5 @@ mod tests {
     fn meta_text_shows_count_only_when_repeated() {
         assert_eq!(meta_text(&hit("ls", 1)), "2m");
         assert_eq!(meta_text(&hit("ls", 4)), "×4    2m");
-    }
-
-    #[test]
-    fn collapse_home_rewrites_the_prefix() {
-        // SAFETY: single-threaded test process.
-        unsafe { std::env::set_var("HOME", "/home/tester") };
-        assert_eq!(collapse_home("/home/tester"), "~");
-        assert_eq!(collapse_home("/home/tester/src/main.rs"), "~/src/main.rs");
-        assert_eq!(collapse_home("/etc/hosts"), "/etc/hosts");
     }
 }

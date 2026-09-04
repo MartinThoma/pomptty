@@ -17,6 +17,14 @@ pub enum ChromeAction {
         from: usize,
         to: usize,
     },
+    /// Context menu: rename tab `i`.
+    RenameTab(usize),
+    /// Context menu: open a copy of tab `i` (same directory) right after it.
+    DuplicateTab(usize),
+    /// Context menu: close every tab except `i`.
+    CloseOtherTabs(usize),
+    /// Context menu: reopen the closed tab at position `k` in the recent list.
+    ReopenClosedTab(usize),
     /// The `Ctrl+R` search affordance was clicked.
     OpenSearch,
     /// Custom-decoration window controls (only when `window_controls`).
@@ -41,6 +49,9 @@ pub struct TabStrip<'a> {
     /// Draw minimize / maximize / close and make the strip a window-drag region
     /// (custom decorations).
     pub window_controls: bool,
+    /// Titles of recently-closed tabs, newest first, for the context menu's
+    /// "Reopen closed" submenu.
+    pub closed: &'a [&'a str],
 }
 
 /// Space above the tabs so they "float" in the strip, Chrome-style.
@@ -114,7 +125,7 @@ impl TabStrip<'_> {
                             ui.horizontal_centered(|ui| {
                                 ui.spacing_mut().item_spacing = vec2(TAB_GAP, 0.0);
                                 let (act, anim, arect) =
-                                    tab_row(ui, &s, self.tabs, self.active, now);
+                                    tab_row(ui, &s, self.tabs, self.active, self.closed, now);
                                 animating |= anim;
                                 if act != ChromeAction::None {
                                     action = act;
@@ -124,7 +135,7 @@ impl TabStrip<'_> {
                                 }
                                 if load_drag(ui).is_none()
                                     && icon_button(ui, &s, Glyph::Plus)
-                                        .on_hover_text("New tab  ·  Ctrl+Shift+T")
+                                        .on_hover_text("New tab")
                                         .clicked()
                                 {
                                     action = ChromeAction::NewTab;
@@ -273,6 +284,7 @@ fn tab_row(
     s: &Surfaces,
     tabs: &[TabView<'_>],
     active: usize,
+    closed: &[&str],
     now: f64,
 ) -> (ChromeAction, bool, Option<Rect>) {
     let n = tabs.len();
@@ -388,6 +400,41 @@ fn tab_row(
         } else if resp.clicked() {
             action = ChromeAction::SelectTab(i);
         }
+
+        resp.context_menu(|ui| {
+            if ui.button("Rename…").clicked() {
+                action = ChromeAction::RenameTab(i);
+                ui.close();
+            }
+            if ui.button("Duplicate").clicked() {
+                action = ChromeAction::DuplicateTab(i);
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Close").clicked() {
+                action = ChromeAction::CloseTab(i);
+                ui.close();
+            }
+            if ui
+                .add_enabled(n > 1, egui::Button::new("Close other tabs"))
+                .clicked()
+            {
+                action = ChromeAction::CloseOtherTabs(i);
+                ui.close();
+            }
+            if !closed.is_empty() {
+                ui.separator();
+                ui.menu_button("Reopen closed", |ui| {
+                    for (k, title) in closed.iter().enumerate() {
+                        if ui.button(*title).clicked() {
+                            action = ChromeAction::ReopenClosedTab(k);
+                            ui.close();
+                        }
+                    }
+                });
+            }
+        });
+
         if i == active {
             active_rect = Some(r);
         }

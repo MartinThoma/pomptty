@@ -44,6 +44,24 @@ pub struct Config {
     pub window: WindowConfig,
     /// The `Ctrl+R` command-history search.
     pub history: HistoryConfig,
+    /// Reopening tabs from the last run on startup.
+    pub session: SessionConfig,
+}
+
+/// Session restore: remember the open tabs (directory + any rename) across
+/// quits and crashes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionConfig {
+    /// When `false`, pomptty neither records nor restores the open tabs —
+    /// every launch starts with a single tab in pomptty's own directory.
+    pub restore: bool,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self { restore: true }
+    }
 }
 
 /// The `Ctrl+R` fuzzy history search (fed by the `pomptty --print-integration`
@@ -113,6 +131,7 @@ impl Default for Config {
             keybindings: KeyBindings::default(),
             window: WindowConfig::default(),
             history: HistoryConfig::default(),
+            session: SessionConfig::default(),
         }
     }
 }
@@ -258,7 +277,7 @@ mod tests {
         // A default the user didn't touch is still there.
         assert_eq!(
             merged.get("ctrl+shift+t"),
-            Some(&keybindings::Action::NewTab)
+            Some(&keybindings::Action::ReopenTab)
         );
     }
 

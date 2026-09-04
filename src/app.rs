@@ -11,10 +11,13 @@ use notify::{RecursiveMode, Watcher};
 use crate::config::Config;
 use crate::config::keybindings::{Action, Chord};
 use crate::history::log_store::LogStore;
+use crate::session::{Session, restore_active};
 use crate::terminal::{TabId, TerminalTab};
 use crate::ui::chrome::{ChromeAction, TabStrip, TabView};
 use crate::ui::history_overlay::{HistoryOutcome, HistoryOverlay};
+use crate::ui::omnibox::{OmniboxOutcome, OmniboxOverlay};
 use crate::ui::style::Surfaces;
+use crate::ui::tab_search::{TabEntry, TabSearchOutcome, TabSearchOverlay};
 
 /// How many lines a "page" scroll moves. A rough constant is fine — the backend
 /// clamps at the ends of the scrollback.
@@ -32,12 +35,33 @@ struct Toast {
     dismissing: bool,
 }
 
+/// A user-closed tab, kept around so `reopen-tab` can bring it back. Only
+/// user-initiated closes are recorded — a shell that exited on its own isn't
+/// "reopenable".
+struct ClosedTab {
+    /// The tab's title at close time: the rename override if it had one,
+    /// otherwise the shell-set title.
+    title: String,
+    cwd: Option<String>,
+    /// The slot it sat in, so reopening restores its position.
+    index: usize,
+}
+/// How many closed tabs to remember.
+const CLOSED_TABS_CAP: usize = 16;
+
 /// Font-zoom limits, in points.
 const FONT_MIN: f32 = 6.0;
 const FONT_MAX: f32 = 72.0;
 /// How long the font size must sit unchanged before it is written back to the
 /// config file, so holding the zoom key doesn't rewrite it on every repeat.
 const FONT_PERSIST_DELAY: Duration = Duration::from_millis(500);
+
+/// How often to check the open tabs (and their directories) against the last
+/// saved session, writing only when something actually changed. A `cd` inside
+/// a shell isn't an event pomptty sees, so this poll — not a save-on-change
+/// hook — is what keeps the saved session's directories fresh, and what makes
+/// "restore after a crash" lose only a little rather than nothing.
+const SESSION_SAVE_INTERVAL: Duration = Duration::from_secs(10);
 
 pub struct PompttyApp {
     config: Config,
@@ -81,6 +105,19 @@ pub struct PompttyApp {
     history: LogStore,
     /// The `Ctrl+R` search overlay; `Some` while it is open.
     history_overlay: Option<HistoryOverlay>,
+    /// User-closed tabs, most recent last. `reopen-tab` pops from here.
+    closed_tabs: Vec<ClosedTab>,
+    /// The `Ctrl+Shift+A` tab switcher; `Some` while it is open.
+    tab_search: Option<TabSearchOverlay>,
+    /// The `Ctrl+Shift+P` command palette; `Some` while it is open.
+    omnibox: Option<OmniboxOverlay>,
+    /// The tab a rename dialog is open for, and its live edit buffer.
+    rename_target: Option<TabId>,
+    rename_buf: String,
+    /// The last time the open-tabs session was checked against disk.
+    session_last_saved: Instant,
+    /// What was last written (or loaded), to skip a no-op save.
+    session_last_written: Option<Session>,
     toast: Option<Toast>,
     /// When the terminal last rang the bell — drives a brief screen flash.
     bell_at: Option<Instant>,
@@ -100,14 +137,46 @@ impl PompttyApp {
         crate::ui::style::apply(ctx, &config.theme);
 
         let (pty_events_tx, pty_events_rx) = channel();
-        let first = TerminalTab::new(
-            0,
-            ctx.clone(),
-            pty_events_tx.clone(),
-            config.shell.clone(),
-            config.shell_args.clone(),
-            None, // the first tab starts in pomptty's own working directory
-        )?;
+
+        // Restore the last session's tabs, if enabled and there is one.
+        let session = config.session.restore.then(Session::load).flatten();
+        let mut tabs = Vec::new();
+        let mut next_tab_id: TabId = 0;
+        for saved in session.iter().flat_map(|s| &s.tabs) {
+            match TerminalTab::new(
+                next_tab_id,
+                ctx.clone(),
+                pty_events_tx.clone(),
+                config.shell.clone(),
+                config.shell_args.clone(),
+                saved.cwd.clone().map(PathBuf::from),
+            ) {
+                Ok(mut tab) => {
+                    tab.manual_title = saved.title.clone();
+                    tabs.push(tab);
+                    next_tab_id += 1;
+                }
+                Err(e) => log::warn!("could not restore a tab: {e:#}"),
+            }
+        }
+        let active = session
+            .as_ref()
+            .map(|s| restore_active(s.active, tabs.len()))
+            .unwrap_or(0);
+        if tabs.is_empty() {
+            // Nothing to restore (or restore is off, or every restored tab
+            // failed to spawn): the one default tab, in pomptty's own cwd.
+            let first = TerminalTab::new(
+                next_tab_id,
+                ctx.clone(),
+                pty_events_tx.clone(),
+                config.shell.clone(),
+                config.shell_args.clone(),
+                None,
+            )?;
+            next_tab_id += 1;
+            tabs.push(first);
+        }
 
         let (config_reload_rx, watcher) = spawn_config_watcher(&config_path, ctx.clone());
 
@@ -124,9 +193,9 @@ impl PompttyApp {
             bindings: config.keybindings.compile(),
             config,
             config_path,
-            tabs: vec![first],
-            active: 0,
-            next_tab_id: 1,
+            tabs,
+            active,
+            next_tab_id,
             pty_events_tx,
             pty_events_rx,
             config_reload_rx,
@@ -134,6 +203,13 @@ impl PompttyApp {
             pending_close: None,
             history: LogStore::new(),
             history_overlay: None,
+            closed_tabs: Vec::new(),
+            tab_search: None,
+            omnibox: None,
+            rename_target: None,
+            rename_buf: String::new(),
+            session_last_saved: Instant::now(),
+            session_last_written: session,
             toast: None,
             bell_at: None,
             title_shown: String::new(),
@@ -209,7 +285,9 @@ impl PompttyApp {
     /// Push the active tab's title to the window title bar, if it changed.
     fn sync_window_title(&mut self, ctx: &egui::Context) {
         let want = match self.tabs.get(self.active) {
-            Some(tab) if !tab.title.is_empty() => format!("{} — pomptty", tab.title),
+            Some(tab) if !tab.display_title().is_empty() => {
+                format!("{} — pomptty", tab.display_title())
+            }
             _ => "pomptty".to_owned(),
         };
         if want != self.title_shown {
@@ -229,7 +307,20 @@ impl PompttyApp {
             .tabs
             .get(self.active)
             .and_then(|t| t.shell_cwd())
-            .map(std::path::PathBuf::from);
+            .map(PathBuf::from);
+        self.spawn_tab_at(ctx, None, cwd, None);
+    }
+
+    /// Open a new tab and switch to it. `index` places it at that slot
+    /// (clamped to the tab count; `None` appends). `manual_title`, if given, is
+    /// applied as a rename override — used by duplicate / reopen-closed.
+    fn spawn_tab_at(
+        &mut self,
+        ctx: &egui::Context,
+        index: Option<usize>,
+        cwd: Option<PathBuf>,
+        manual_title: Option<String>,
+    ) {
         match TerminalTab::new(
             self.next_tab_id,
             ctx.clone(),
@@ -238,13 +329,73 @@ impl PompttyApp {
             self.config.shell_args.clone(),
             cwd,
         ) {
-            Ok(tab) => {
+            Ok(mut tab) => {
+                tab.manual_title = manual_title;
                 log::info!("opened tab {}", tab.id);
-                self.tabs.push(tab);
-                self.active = self.tabs.len() - 1;
+                let at = insert_slot(index, self.tabs.len());
+                self.tabs.insert(at, tab);
+                self.active = at;
                 self.next_tab_id += 1;
             }
             Err(e) => self.set_toast(format!("Could not open a new tab: {e:#}")),
+        }
+    }
+
+    /// Reopen the most recently closed tab in its old slot and directory, or
+    /// open a plain new tab when nothing has been closed.
+    fn reopen_tab(&mut self, ctx: &egui::Context) {
+        match self.closed_tabs.pop() {
+            Some(c) => {
+                self.spawn_tab_at(ctx, Some(c.index), c.cwd.map(PathBuf::from), Some(c.title))
+            }
+            None => self.spawn_tab(ctx),
+        }
+    }
+
+    /// Reopen closed tab `k` counting from the most recent (`0` = last closed),
+    /// as shown in the context menu's "Reopen closed" submenu.
+    fn reopen_closed_tab(&mut self, ctx: &egui::Context, k: usize) {
+        let Some(slot) = closed_tab_slot(k, self.closed_tabs.len()) else {
+            return;
+        };
+        let c = self.closed_tabs.remove(slot);
+        self.spawn_tab_at(ctx, Some(c.index), c.cwd.map(PathBuf::from), Some(c.title));
+    }
+
+    /// Open a copy of tab `idx` (same directory and title) right after it.
+    fn duplicate_tab(&mut self, ctx: &egui::Context, idx: usize) {
+        let Some(tab) = self.tabs.get(idx) else {
+            return;
+        };
+        let cwd = tab.shell_cwd().map(PathBuf::from);
+        let title = tab.manual_title.clone();
+        self.spawn_tab_at(ctx, Some(idx + 1), cwd, title);
+    }
+
+    /// Close every tab except `idx`, leaving any with a running child alone.
+    fn close_other_tabs(&mut self, idx: usize, ctx: &egui::Context) {
+        let Some(keep_id) = self.tabs.get(idx).map(|t| t.id) else {
+            return;
+        };
+        let mut kept_busy = 0;
+        // Walk backwards so removing a tab never invalidates an index still to
+        // come — everything before `i` is untouched by removing at `i`.
+        for i in (0..self.tabs.len()).rev() {
+            if self.tabs[i].id == keep_id {
+                continue;
+            }
+            if self.tabs[i].has_running_child() {
+                kept_busy += 1;
+                continue;
+            }
+            self.close_tab(i, ctx);
+        }
+        if let Some(pos) = self.tabs.iter().position(|t| t.id == keep_id) {
+            self.active = pos;
+        }
+        if kept_busy > 0 {
+            let s = if kept_busy == 1 { "" } else { "s" };
+            self.set_toast(format!("Kept {kept_busy} tab{s} with a running process"));
         }
     }
 
@@ -275,6 +426,17 @@ impl PompttyApp {
         if idx >= self.tabs.len() {
             return;
         }
+        let title = self.tabs[idx].display_title().to_owned();
+        let cwd = self.tabs[idx].shell_cwd();
+        self.closed_tabs.push(ClosedTab {
+            title,
+            cwd,
+            index: idx,
+        });
+        if self.closed_tabs.len() > CLOSED_TABS_CAP {
+            self.closed_tabs.remove(0);
+        }
+
         let closed = self.tabs.remove(idx); // Drop shuts the PTY down.
         log::info!("closed tab {}", closed.id);
         if self.tabs.is_empty() {
@@ -304,7 +466,7 @@ impl PompttyApp {
             self.close_tab(idx, ctx);
             return;
         }
-        let title = self.tabs[idx].title.clone();
+        let title = self.tabs[idx].display_title().to_owned();
 
         let s = Surfaces::from_theme(&self.config.theme);
         let mut close = false;
@@ -366,6 +528,117 @@ impl PompttyApp {
             // Poll so the dialog can notice the process finishing on its own.
             ctx.request_repaint_after(Duration::from_millis(500));
         }
+    }
+
+    /// Draw the rename dialog for `self.rename_target` and act on the choice.
+    fn show_rename_dialog(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.rename_target else { return };
+        let Some(idx) = self.tabs.iter().position(|t| t.id == id) else {
+            self.rename_target = None;
+            return;
+        };
+
+        let s = Surfaces::from_theme(&self.config.theme);
+        let mut commit = false;
+        let mut cancel = false;
+        let vis = ctx.animate_bool_with_time(egui::Id::new("pomptty_rename_anim"), true, 0.11);
+        let shadow_alpha = if self.config.theme.is_dark() { 130 } else { 55 };
+        let frame = egui::Frame::new()
+            .fill(s.raised)
+            .stroke(egui::Stroke::new(1.0, s.border))
+            .corner_radius(12)
+            .inner_margin(egui::Margin::same(20))
+            .shadow(egui::Shadow {
+                offset: [0, 12],
+                blur: 34,
+                spread: 0,
+                color: egui::Color32::from_black_alpha(shadow_alpha),
+            });
+        let modal = egui::Modal::new(egui::Id::new("pomptty_rename"))
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.set_opacity(vis);
+                ui.set_width(320.0);
+                ui.label(egui::RichText::new("Rename tab").size(16.0).strong());
+                ui.add_space(10.0);
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.rename_buf)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Empty resets to the shell's title"),
+                );
+                // Check for the commit *before* possibly re-requesting focus:
+                // pressing Enter also makes a singleline edit lose focus, and
+                // re-granting it here would mask that transition.
+                let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if !resp.has_focus() && !enter {
+                    resp.request_focus();
+                }
+                ui.add_space(16.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let primary = egui::Button::new(
+                        egui::RichText::new("Rename").color(crate::ui::style::on_accent(s.accent)),
+                    )
+                    .fill(s.accent)
+                    .corner_radius(7);
+                    if ui.add(primary).clicked() || enter {
+                        commit = true;
+                    }
+                    if ui
+                        .add(egui::Button::new("Cancel").fill(egui::Color32::TRANSPARENT))
+                        .clicked()
+                    {
+                        cancel = true;
+                    }
+                });
+            });
+
+        if commit {
+            self.rename_target = None;
+            let buf = self.rename_buf.trim();
+            self.tabs[idx].manual_title = (!buf.is_empty()).then(|| buf.to_owned());
+        } else if cancel || modal.should_close() {
+            self.rename_target = None;
+        }
+    }
+
+    /// Open the `Ctrl+Shift+A` tab switcher over a snapshot of the open tabs.
+    fn open_tab_search(&mut self) {
+        let entries: Vec<TabEntry> = self
+            .tabs
+            .iter()
+            .map(|t| TabEntry {
+                id: t.id,
+                title: t.display_title().to_owned(),
+                cwd: t.shell_cwd(),
+            })
+            .collect();
+        let active_id = self.tabs[self.active].id;
+        self.tab_search = Some(TabSearchOverlay::new(entries, active_id));
+    }
+
+    /// Open the `Ctrl+Shift+P` command palette over a snapshot of the open
+    /// tabs and recent history.
+    fn open_omnibox(&mut self) {
+        self.history.refresh();
+        let entries: Vec<TabEntry> = self
+            .tabs
+            .iter()
+            .map(|t| TabEntry {
+                id: t.id,
+                title: t.display_title().to_owned(),
+                cwd: t.shell_cwd(),
+            })
+            .collect();
+        let active_id = self.tabs[self.active].id;
+        let active_cwd = self.tabs[self.active].shell_cwd();
+        // Recent directories, minus the one the active tab is already in.
+        let dirs: Vec<String> = self
+            .history
+            .recent_dirs(20)
+            .into_iter()
+            .filter(|d| Some(d) != active_cwd.as_ref())
+            .collect();
+        self.omnibox = Some(OmniboxOverlay::new(entries, active_id, dirs));
     }
 
     /// Move focus `delta` tabs, wrapping around.
@@ -498,6 +771,29 @@ impl PompttyApp {
         }
     }
 
+    /// Check the open tabs against the last saved session every
+    /// [`SESSION_SAVE_INTERVAL`], writing only when something changed (a tab
+    /// opened/closed/moved/renamed, or one `cd`'d somewhere new).
+    fn maybe_persist_session(&mut self, ctx: &egui::Context) {
+        if !self.config.session.restore {
+            return;
+        }
+        match SESSION_SAVE_INTERVAL.checked_sub(self.session_last_saved.elapsed()) {
+            Some(remaining) => ctx.request_repaint_after(remaining),
+            None => {
+                self.session_last_saved = Instant::now();
+                let snapshot = Session::capture(&self.tabs, self.active);
+                if self.session_last_written.as_ref() != Some(&snapshot) {
+                    if let Err(e) = snapshot.save() {
+                        log::warn!("could not save session: {e:#}");
+                    }
+                    self.session_last_written = Some(snapshot);
+                }
+                ctx.request_repaint_after(SESSION_SAVE_INTERVAL);
+            }
+        }
+    }
+
     /// Open the `Ctrl+R` history overlay. With history disabled in the config,
     /// forward a real `Ctrl+R` to the shell instead so its own reverse-i-search
     /// still works.
@@ -537,11 +833,14 @@ impl PompttyApp {
             Action::Clear => self.active_tab().write(vec![0x0c]), // Ctrl+L
             Action::ReloadConfig => self.reload_config(ctx, true),
             Action::NewTab => self.spawn_tab(ctx),
+            Action::ReopenTab => self.reopen_tab(ctx),
             Action::CloseTab => self.request_close_tab(self.active, ctx),
             Action::NextTab => self.focus_delta(1),
             Action::PrevTab => self.focus_delta(-1),
             Action::GotoTab(n) => self.goto_tab(n),
+            Action::TabSearch => self.open_tab_search(),
             Action::HistorySearch => self.open_history_search(),
+            Action::Omnibox => self.open_omnibox(),
             // Inert here: handled by the terminal widget, or filtered out before
             // dispatch (see `Action::is_active` and `KeyBindings::compile`).
             Action::Copy | Action::Paste | Action::Disabled => {}
@@ -565,7 +864,12 @@ impl eframe::App for PompttyApp {
         self.pump_config_reload(&ctx);
         // While a modal (close confirmation, history search) is up, the keyboard
         // belongs to it.
-        if self.pending_close.is_none() && self.history_overlay.is_none() {
+        if self.pending_close.is_none()
+            && self.history_overlay.is_none()
+            && self.rename_target.is_none()
+            && self.tab_search.is_none()
+            && self.omnibox.is_none()
+        {
             self.handle_bindings(&ctx);
         }
         if self.tabs.is_empty() {
@@ -578,17 +882,27 @@ impl eframe::App for PompttyApp {
             resize_edges(ui, &ctx);
         }
 
-        let tab_meta: Vec<(TabId, String)> =
-            self.tabs.iter().map(|t| (t.id, t.title.clone())).collect();
+        let tab_meta: Vec<(TabId, String)> = self
+            .tabs
+            .iter()
+            .map(|t| (t.id, t.display_title().to_owned()))
+            .collect();
         let tabs: Vec<TabView<'_>> = tab_meta
             .iter()
             .map(|(id, title)| TabView { id: *id, title })
+            .collect();
+        let closed_titles: Vec<&str> = self
+            .closed_tabs
+            .iter()
+            .rev()
+            .map(|c| c.title.as_str())
             .collect();
         let (chrome_action, chrome_animating) = TabStrip {
             tabs: &tabs,
             active: self.active,
             surfaces,
             window_controls: self.custom_chrome,
+            closed: &closed_titles,
         }
         .show(ui);
         if chrome_animating {
@@ -604,6 +918,15 @@ impl eframe::App for PompttyApp {
             }
             ChromeAction::CloseTab(i) => self.request_close_tab(i, &ctx),
             ChromeAction::MoveTab { from, to } => self.move_tab(from, to),
+            ChromeAction::RenameTab(i) => {
+                if let Some(tab) = self.tabs.get(i) {
+                    self.rename_target = Some(tab.id);
+                    self.rename_buf = tab.display_title().to_owned();
+                }
+            }
+            ChromeAction::DuplicateTab(i) => self.duplicate_tab(&ctx, i),
+            ChromeAction::CloseOtherTabs(i) => self.close_other_tabs(i, &ctx),
+            ChromeAction::ReopenClosedTab(k) => self.reopen_closed_tab(&ctx, k),
             ChromeAction::OpenSearch => self.open_history_search(),
             ChromeAction::Minimize => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -625,6 +948,7 @@ impl eframe::App for PompttyApp {
         self.active = self.active.min(self.tabs.len() - 1);
         self.sync_window_title(&ctx);
         self.persist_font_size_when_settled(&ctx);
+        self.maybe_persist_session(&ctx);
 
         if self.pending_close.is_some() {
             self.show_close_confirmation(&ctx);
@@ -634,6 +958,70 @@ impl eframe::App for PompttyApp {
         } else {
             // Re-prime the modal's open animation for next time.
             ctx.animate_bool_with_time(egui::Id::new("pomptty_confirm_anim"), false, 0.0);
+        }
+
+        if self.rename_target.is_some() {
+            self.show_rename_dialog(&ctx);
+        } else {
+            ctx.animate_bool_with_time(egui::Id::new("pomptty_rename_anim"), false, 0.0);
+        }
+
+        // Rendered before the other overlays: picking "Search Tabs" / "Search
+        // History" from the palette closes it and opens one of them via the
+        // normal dispatch, and that should show up this same frame.
+        if self.omnibox.is_some() {
+            let dark = self.config.theme.is_dark();
+            let outcome = self
+                .omnibox
+                .as_mut()
+                .unwrap()
+                .show(&ctx, &self.history, surfaces, dark);
+            match outcome {
+                OmniboxOutcome::None => {}
+                OmniboxOutcome::Dismiss => self.omnibox = None,
+                OmniboxOutcome::RunAction(action) => {
+                    self.omnibox = None;
+                    self.dispatch(action, &ctx);
+                }
+                OmniboxOutcome::SelectTab(id) => {
+                    self.omnibox = None;
+                    if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
+                        self.active = pos;
+                    }
+                }
+                OmniboxOutcome::InsertCommand(cmd) => {
+                    self.omnibox = None;
+                    self.active_tab().write(cmd.into_bytes());
+                }
+                OmniboxOutcome::RunCommand(cmd) => {
+                    self.omnibox = None;
+                    let mut bytes = cmd.into_bytes();
+                    bytes.push(b'\r');
+                    self.active_tab().write(bytes);
+                }
+                OmniboxOutcome::ChangeDir(dir) => {
+                    self.omnibox = None;
+                    let quoted = dir.replace('\'', r"'\''");
+                    let mut bytes = format!("cd '{quoted}'").into_bytes();
+                    bytes.push(b'\r');
+                    self.active_tab().write(bytes);
+                }
+            }
+        }
+
+        if self.tab_search.is_some() {
+            let dark = self.config.theme.is_dark();
+            let outcome = self.tab_search.as_mut().unwrap().show(&ctx, surfaces, dark);
+            match outcome {
+                TabSearchOutcome::None => {}
+                TabSearchOutcome::Dismiss => self.tab_search = None,
+                TabSearchOutcome::Select(id) => {
+                    self.tab_search = None;
+                    if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
+                        self.active = pos;
+                    }
+                }
+            }
         }
 
         if self.history_overlay.is_some() {
@@ -668,7 +1056,13 @@ impl eframe::App for PompttyApp {
         egui::CentralPanel::default().frame(panel).show(ui, |ui| {
             let tab = &mut self.tabs[self.active];
             let view = TerminalView::new(ui, &mut tab.backend)
-                .set_focus(self.pending_close.is_none() && self.history_overlay.is_none())
+                .set_focus(
+                    self.pending_close.is_none()
+                        && self.history_overlay.is_none()
+                        && self.rename_target.is_none()
+                        && self.tab_search.is_none()
+                        && self.omnibox.is_none(),
+                )
                 .set_theme(self.theme.clone())
                 .set_font(TerminalFont::new(FontSettings {
                     font_type: egui::FontId::monospace(self.font_size),
@@ -690,6 +1084,20 @@ impl eframe::App for PompttyApp {
 
         self.show_bell_flash(ui, &ctx, surfaces);
         self.show_toast(&ctx);
+    }
+
+    /// Called once on shutdown (however it was triggered — the window's ×,
+    /// `close-tab` on the last tab, `CloseWindow`). A final, unconditional
+    /// save so a clean quit's session is never more than
+    /// [`SESSION_SAVE_INTERVAL`] stale. Not called on a hard crash — the
+    /// periodic save in [`Self::maybe_persist_session`] is what covers that.
+    fn on_exit(&mut self) {
+        if !self.config.session.restore {
+            return;
+        }
+        if let Err(e) = Session::capture(&self.tabs, self.active).save() {
+            log::warn!("could not save session on exit: {e:#}");
+        }
     }
 }
 
@@ -763,6 +1171,19 @@ fn resize_edges(ui: &egui::Ui, ctx: &egui::Context) {
             ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
         }
     }
+}
+
+/// Where a tab requesting slot `index` (`None` = append) actually lands among
+/// `len` existing tabs — clamped so a stale or out-of-range request can't panic.
+fn insert_slot(index: Option<usize>, len: usize) -> usize {
+    index.unwrap_or(len).min(len)
+}
+
+/// Position in `closed_tabs` for "the `k`-th most recently closed" (`0` = the
+/// last one closed), as shown newest-first in the "Reopen closed" submenu.
+/// `None` if there aren't that many.
+fn closed_tab_slot(k: usize, len: usize) -> Option<usize> {
+    if k >= len { None } else { Some(len - 1 - k) }
 }
 
 /// Where index `idx` lands after the element at `from` is removed and
@@ -848,7 +1269,30 @@ fn spawn_config_watcher(
 
 #[cfg(test)]
 mod tests {
-    use super::{FONT_MAX, FONT_MIN, remap_index, snap_zoom};
+    use super::{FONT_MAX, FONT_MIN, closed_tab_slot, insert_slot, remap_index, snap_zoom};
+
+    #[test]
+    fn insert_slot_appends_or_clamps() {
+        assert_eq!(insert_slot(None, 3), 3, "no index requested -> append");
+        assert_eq!(insert_slot(Some(1), 3), 1);
+        assert_eq!(insert_slot(Some(3), 3), 3, "at the end is fine");
+        assert_eq!(
+            insert_slot(Some(99), 3),
+            3,
+            "a stale index clamps to append"
+        );
+        assert_eq!(insert_slot(None, 0), 0);
+    }
+
+    #[test]
+    fn closed_tab_slot_counts_back_from_the_most_recent() {
+        // 3 closed tabs, oldest at index 0: [old, mid, new].
+        assert_eq!(closed_tab_slot(0, 3), Some(2), "most recent");
+        assert_eq!(closed_tab_slot(1, 3), Some(1));
+        assert_eq!(closed_tab_slot(2, 3), Some(0), "oldest");
+        assert_eq!(closed_tab_slot(3, 3), None, "nothing that far back");
+        assert_eq!(closed_tab_slot(0, 0), None, "nothing closed yet");
+    }
 
     #[test]
     fn remap_index_tracks_the_active_tab_across_a_reorder() {

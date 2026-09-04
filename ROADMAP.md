@@ -135,13 +135,20 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 ## M6 — browser-shaped workflow ★
 
-- [ ] **omnibox / command palette** (`ctrl+shift+p` or `ctrl+l`): one input to
-      run a command, `cd` to a recent dir, jump to a block, search history, run
-      an action, switch tab — live-ranked results
-- [ ] reopen closed tab (`ctrl+shift+t`), recently-closed list
-- [ ] tab search (`ctrl+shift+a`)
-- [ ] tab groups / colors, tab context menu (rename, duplicate, close others)
-- [ ] session restore: reopen tabs + cwd (+ optional scrollback) after quit / crash
+- [x] **omnibox / command palette** (`ctrl+shift+p`): one input, four ranked
+      sections — actions, tabs, history, recent directories — fuzzy-filtered
+      together; `Enter` acts (run the action, switch tab, insert the command,
+      `cd` there), `Ctrl+Enter` on a history row runs it. "Jump to a block" is
+      out until M5 exists.
+- [x] reopen closed tab (`ctrl+shift+t`: reopens the last closed tab in its old
+      slot and directory, or opens a plain new tab when there's nothing to
+      reopen), recently-closed list (right-click a tab → "Reopen closed")
+- [x] tab search (`ctrl+shift+a`, fuzzy)
+- [x] tab context menu: rename, duplicate, close others
+- [ ] tab groups / colors
+- [x] session restore: reopen tabs, directories, order, active tab and renames
+      after quit / crash (`session.json`, periodic save + `on_exit`,
+      `session.restore` config gate); scrollback replay not included
 - [ ] profiles (per-profile shell / theme / cwd / font), profile picker in the omnibox
 - [ ] settings UI (edit the config visually; still round-trips the JSON)
 
@@ -159,6 +166,8 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 ## Later / polish
 
+- [ ] session restore: optional scrollback replay (currently a fresh shell in
+      the remembered directory, no output history)
 - [ ] `scrollback_lines` actually wired to the backend
 - [ ] scrollback search within a tab (browser-style find bar)
 - [ ] history: SQLite + FTS5 store, compaction / pruning of the per-pid `*.log`

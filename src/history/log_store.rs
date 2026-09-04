@@ -113,6 +113,19 @@ impl LogStore {
         scored.truncate(limit);
         scored.into_iter().map(|(i, _)| hits[i].clone()).collect()
     }
+
+    /// Distinct directories commands have run in, most-recently-used first.
+    /// Feeds the omnibox's "cd to a recent directory" section.
+    pub fn recent_dirs(&self, limit: usize) -> Vec<String> {
+        let mut runs: Vec<&CommandRecord> = self.runs.iter().collect();
+        runs.sort_by_key(|r| std::cmp::Reverse(r.last_run));
+        let mut seen = std::collections::HashSet::new();
+        runs.into_iter()
+            .filter_map(|r| r.cwd.clone())
+            .filter(|d| seen.insert(d.clone()))
+            .take(limit)
+            .collect()
+    }
 }
 
 impl Default for LogStore {
@@ -303,6 +316,18 @@ mod tests {
         let (_d, store) = store_over(&recs);
         assert_eq!(store.query("", None, 3).len(), 3);
         assert_eq!(store.query("cmd", None, 3).len(), 3);
+    }
+
+    #[test]
+    fn recent_dirs_are_deduped_and_most_recent_first() {
+        let (_d, store) = store_over(&[
+            rec("ls", Some("/home/a"), Duration::from_secs(500)),
+            rec("pwd", Some("/home/b"), Duration::from_secs(300)),
+            rec("ls", Some("/home/a"), Duration::from_secs(100)), // /home/a again, more recently
+            rec("true", None, Duration::from_secs(50)),           // no cwd recorded
+        ]);
+        assert_eq!(store.recent_dirs(10), ["/home/a", "/home/b"]);
+        assert_eq!(store.recent_dirs(1), ["/home/a"], "respects the limit");
     }
 
     #[test]

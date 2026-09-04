@@ -29,9 +29,14 @@ pub enum Action {
     Clear,
     ReloadConfig,
     NewTab,
+    /// Reopen the most recently closed tab (in its old slot, same directory),
+    /// or open a new tab when nothing has been closed.
+    ReopenTab,
     CloseTab,
     NextTab,
     PrevTab,
+    /// Open the fuzzy tab switcher.
+    TabSearch,
     /// Jump to tab N (1-based); a value past the last tab jumps to the last.
     /// In the config: `"goto-tab-3"`.
     GotoTab(u8),
@@ -39,6 +44,9 @@ pub enum Action {
     /// `"history": { "enabled": false }` in the config the keystroke is handed
     /// to the shell's own reverse-i-search instead.
     HistorySearch,
+    /// Open the command palette: one input over actions, tabs, history and
+    /// recent directories.
+    Omnibox,
     /// Turn a default binding off. Put `"<chord>": "disabled"` in the config to
     /// suppress a shortcut that would otherwise come from the defaults.
     Disabled,
@@ -59,11 +67,14 @@ impl Action {
             Action::Clear => "clear".into(),
             Action::ReloadConfig => "reload-config".into(),
             Action::NewTab => "new-tab".into(),
+            Action::ReopenTab => "reopen-tab".into(),
             Action::CloseTab => "close-tab".into(),
             Action::NextTab => "next-tab".into(),
             Action::PrevTab => "prev-tab".into(),
+            Action::TabSearch => "tab-search".into(),
             Action::GotoTab(n) => format!("goto-tab-{n}").into(),
             Action::HistorySearch => "history-search".into(),
+            Action::Omnibox => "omnibox".into(),
             Action::Disabled => "disabled".into(),
         }
     }
@@ -82,10 +93,13 @@ impl Action {
             "clear" => Action::Clear,
             "reload-config" => Action::ReloadConfig,
             "new-tab" => Action::NewTab,
+            "reopen-tab" => Action::ReopenTab,
             "close-tab" => Action::CloseTab,
             "next-tab" => Action::NextTab,
             "prev-tab" => Action::PrevTab,
+            "tab-search" => Action::TabSearch,
             "history-search" => Action::HistorySearch,
+            "omnibox" => Action::Omnibox,
             "disabled" => Action::Disabled,
             other => Action::GotoTab(other.strip_prefix("goto-tab-")?.parse().ok()?),
         })
@@ -266,7 +280,8 @@ impl Default for KeyBindings {
             ("shift+end", Action::ScrollToBottom),
             ("ctrl+shift+k", Action::Clear),
             ("ctrl+shift+r", Action::ReloadConfig),
-            ("ctrl+shift+t", Action::NewTab),
+            ("ctrl+shift+t", Action::ReopenTab),
+            ("ctrl+shift+a", Action::TabSearch),
             ("ctrl+shift+w", Action::CloseTab),
             ("ctrl+shift+pagedown", Action::NextTab),
             ("ctrl+shift+pageup", Action::PrevTab),
@@ -282,6 +297,7 @@ impl Default for KeyBindings {
             ("ctrl+8", Action::GotoTab(8)),
             ("ctrl+9", Action::GotoTab(9)),
             ("ctrl+r", Action::HistorySearch),
+            ("ctrl+shift+p", Action::Omnibox),
         ];
         KeyBindings(
             defaults
@@ -337,6 +353,9 @@ mod tests {
     fn actions_round_trip_as_strings() {
         for a in [
             Action::NewTab,
+            Action::ReopenTab,
+            Action::TabSearch,
+            Action::Omnibox,
             Action::FontIncrease,
             Action::GotoTab(3),
             Action::Disabled,
@@ -378,7 +397,7 @@ mod tests {
         let merged = kb.merged();
         assert_eq!(merged.get("ctrl+shift+e"), Some(&Action::NewTab));
         assert_eq!(merged.get("ctrl+1"), Some(&Action::GotoTab(1)));
-        assert_eq!(merged.get("ctrl+shift+t"), Some(&Action::NewTab));
+        assert_eq!(merged.get("ctrl+shift+t"), Some(&Action::ReopenTab));
     }
 
     #[test]

@@ -27,9 +27,20 @@ the PTY. Linux is the only supported platform today; macOS and Windows are on th
 
 ## Features
 
+- **Command palette** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>) — one
+  input, fuzzy-filtered across four ranked sections at once: actions, open
+  tabs, command history, and recent directories. <kbd>Enter</kbd> acts on
+  whatever's selected — run the action, switch tab, drop the command on the
+  prompt, or `cd` the active tab there.
 - **Tabs** — open, close, switch, and drag-to-reorder by keyboard or mouse; each
   tab shows the title set by the shell (OSC 0/2), the window title follows the
   active tab, and a new tab opens in the active tab's working directory.
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens the last closed tab,
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> opens a fuzzy tab switcher, and
+  right-clicking a tab gives rename / duplicate / close-others / reopen-closed.
+- **Session restore** — quitting (or crashing) and relaunching reopens the same
+  tabs, in the same directories and order, with the same active tab and any
+  renames. On by default; turn it off with `"session": { "restore": false }`.
 - **Live configuration reload** — save `config.json` and the change applies
   immediately (or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>). A
   malformed file is never overwritten: the last good config is kept and the error
@@ -106,11 +117,14 @@ the file, and binding a chord to `"disabled"` removes a default
 | `scroll-to-top` / `scroll-to-bottom` | `shift+home` / `shift+end` | |
 | `clear` | `ctrl+shift+k` | sends <kbd>Ctrl</kbd>+<kbd>L</kbd> to the shell |
 | `reload-config` | `ctrl+shift+r` | |
-| `new-tab` | `ctrl+shift+t` | |
+| `new-tab` | — | not bound by default (`reopen-tab` covers `ctrl+shift+t`); bind it yourself for a guaranteed-new tab |
+| `reopen-tab` | `ctrl+shift+t` | reopens the last closed tab (old slot, same directory); opens a plain new tab when there's nothing to reopen |
 | `close-tab` | `ctrl+shift+w` | closing the last tab quits |
 | `next-tab` / `prev-tab` | `ctrl+tab` / `ctrl+shift+tab` (also `ctrl+shift+pagedown` / `pageup`) | wraps around |
 | `goto-tab-1` … `goto-tab-9` | `ctrl+1` … `ctrl+9` | jump to that tab; `goto-tab-9` is the last tab |
+| `tab-search` | `ctrl+shift+a` | fuzzy switcher over the open tabs |
 | `history-search` | `ctrl+r` | opens the fuzzy history overlay (see [Shell integration](#shell-integration)); falls through to the shell when `history.enabled` is `false` |
+| `omnibox` | `ctrl+shift+p` | command palette: actions, tabs, history and recent directories in one ranked list |
 | `disabled` | — | suppresses a default binding |
 
 ### Mouse
@@ -118,6 +132,8 @@ the file, and binding a chord to `"disabled"` removes a default
 - Click a tab to focus it; click `×` or middle-click to close it; click `+` to
   open a new one.
 - Drag a tab sideways to reorder it.
+- Right-click a tab for rename, duplicate, close others, and a "reopen closed"
+  submenu.
 - Click and drag inside the terminal to select; selected text is available to
   copy.
 
@@ -183,6 +199,7 @@ config.
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
 | `window` | `width` / `height` in logical pixels, and `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly; takes effect on restart). |
 | `history` | `enabled` (default `true`) — whether <kbd>Ctrl</kbd>+<kbd>R</kbd> opens the overlay (see [Shell integration](#shell-integration)); `max_results` (default `50`) — rows shown at once. |
+| `session` | `restore` (default `true`) — reopen the last run's tabs, directories and renames on launch; also stops pomptty recording them when `false`. Saved to `session.json` next to the history logs. |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the
 fallback chain, so powerline prompts and devicon themes render their icons rather
@@ -237,8 +254,9 @@ Source layout:
 | `src/app.rs` | the eframe app: tabs, event loop, dispatch |
 | `src/config/` | config loading, themes, keybindings |
 | `src/terminal/` | one PTY-backed terminal tab |
-| `src/ui/` | the tab strip, history overlay, and other chrome |
+| `src/ui/` | the tab strip, history/tab-search/omnibox overlays, and other chrome |
 | `src/history/` | the shell-integration hook, log format, and history store |
+| `src/session.rs` | session restore: what's saved, load/save |
 
 Contributions are welcome. Please run `make fmt lint test` before opening a pull
 request.
