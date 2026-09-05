@@ -133,12 +133,18 @@ exposure; forked into [`vendor/egui_term/`](vendor/egui_term)):
       (`underline_kind` + `push_text_decoration`; `alacritty_terminal`
       already parses and stores the flags, so the parser is untouched).
       neovim / helix LSP squiggles now render
-- [ ] **box-drawing / block / Powerline glyphs drawn by pomptty**, not the
-      font — pixel-perfect `─│┌┘`, shade blocks, and powerline separators at
-      any size/font, the way kitty/WezTerm/Alacritty/Ghostty do. Fits
-      "stunning by default"
-- [ ] **"bold is bright"** option (map bold text onto the bright palette, as
-      many terminals do); confirm `DIM` / `DIM_BOLD` render right
+- [x] **box-drawing / block / Powerline glyphs drawn by pomptty**, not the
+      font (`vendor/egui_term/src/box_drawing.rs`): `U+2500..257F` lines
+      (light + heavy, corners / tees / cross, partials), `U+2550..256C`
+      double lines (junctions approximate, not per-char perfected),
+      `U+2580..259F` block / shade / quadrant elements, `U+2571..2573`
+      diagonals, `U+E0B0..E0B3` Powerline separators. Pixel-snapped filled
+      rects → no sub-pixel gaps, exact scaling. `U+E0B4+` (rounded / slant
+      powerline) and rounded corners `U+256D..2570` still fall through to
+      the font
+- [x] **"bold is bright"** — `bold_is_bright` config option maps a bold
+      cell's normal palette colour (0–7) to its bright counterpart (8–15);
+      `DIM` (`fg × 0.7`) and `DIM_BOLD` are excluded and still render dim
 
 **Slice 5 — depth**: optional background blur / translucency; optional background
 image with dimming + vignette; faint top-edge pane highlight.

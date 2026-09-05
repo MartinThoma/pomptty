@@ -71,6 +71,8 @@ the PTY. Linux and Windows are supported; macOS is on the
 - Custom font from a file path, with real bold/italic faces when installed;
   underline (single / double / undercurl / dotted / dashed, with `\e[58m`
   underline colour) and strikethrough — neovim / helix LSP squiggles render.
+- Box-drawing, block, shade and Powerline glyphs drawn by pomptty rather than
+  the font — lines join with no sub-pixel gap and stay crisp at any size.
 - A themed, shaped (block/beam/underline), gliding, blinking cursor — apps that
   set their own style (`vim`'s insert-mode beam) override the configured
   default.
@@ -235,6 +237,7 @@ config.
 |---|---|
 | `font_family` | Path to a `.ttf`/`.otf`/`.ttc` file, **or** the name of an installed font family (case-insensitive). `null` uses the bundled monospace face. |
 | `font_size` | Terminal font size, in points. Zooming with the keyboard writes the new size back here. |
+| `bold_is_bright` | `false` by default. When `true`, bold text using one of the 8 normal palette colours is drawn with the matching bright colour (as Alacritty / kitty can). |
 | `scrollback_lines` | Reserved; not yet wired to the backend. |
 | `shell` | Shell to launch, or `null` for `$SHELL` (falling back to `/bin/bash`). |
 | `shell_args` | Extra arguments for the shell. |

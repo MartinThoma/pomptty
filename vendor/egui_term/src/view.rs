@@ -20,6 +20,7 @@ use crate::backend::TerminalBackend;
 use crate::backend::{LinkAction, MouseButton, SelectionType};
 use crate::bindings::Binding;
 use crate::bindings::{BindingAction, BindingsLayout, InputKind};
+use crate::box_drawing;
 use crate::font::TerminalFont;
 use crate::theme::TerminalTheme;
 use crate::types::Size;
@@ -48,6 +49,8 @@ pub struct TerminalView<'a> {
     font: TerminalFont,
     theme: TerminalTheme,
     bindings_layout: BindingsLayout,
+    /// Draw bold text with the bright palette entry (SGR 1 → colours 8–15).
+    bold_is_bright: bool,
 }
 
 impl Widget for TerminalView<'_> {
@@ -84,6 +87,7 @@ impl<'a> TerminalView<'a> {
             font: TerminalFont::default(),
             theme: TerminalTheme::default(),
             bindings_layout: BindingsLayout::new(),
+            bold_is_bright: false,
         }
     }
 
@@ -108,6 +112,12 @@ impl<'a> TerminalView<'a> {
     #[inline]
     pub fn set_size(mut self, size: Vec2) -> Self {
         self.size = size;
+        self
+    }
+
+    #[inline]
+    pub fn set_bold_is_bright(mut self, yes: bool) -> Self {
+        self.bold_is_bright = yes;
         self
     }
 
@@ -265,7 +275,12 @@ impl<'a> TerminalView<'a> {
             let line_num = indexed.point.line.0 + content.grid.display_offset() as i32;
             let y = layout_min.y + (cell_height * line_num as f32);
 
-            let mut fg = resolve_color(&self.theme, colors, indexed.fg);
+            let fg_spec = if self.bold_is_bright && is_bold && !is_dim {
+                brighten(indexed.fg)
+            } else {
+                indexed.fg
+            };
+            let mut fg = resolve_color(&self.theme, colors, fg_spec);
             let mut bg = resolve_color(&self.theme, colors, indexed.bg);
             let cell_width = if is_wide_char {
                 cell_width * 2.0
@@ -318,13 +333,25 @@ impl<'a> TerminalView<'a> {
                 });
             }
 
+            // Box-drawing / block / shade / Powerline glyphs are drawn by
+            // pomptty (crisp joins, exact scaling) rather than the font.
+            let mut box_glyph_drawn = false;
+            if indexed.c != ' ' && indexed.c != '\t' {
+                if let Some(mut g) =
+                    box_drawing::cell_glyph(indexed.c, x, y, cell_width, cell_height, fg)
+                {
+                    shapes.append(&mut g);
+                    box_glyph_drawn = true;
+                }
+            }
+
             let is_cursor_cell = content.grid.cursor.point == indexed.point;
             if is_cursor_cell {
                 cursor_target = Some((Pos2::new(x, y), cell_width));
             }
 
             // Draw text content
-            if indexed.c != ' ' && indexed.c != '\t' {
+            if indexed.c != ' ' && indexed.c != '\t' && !box_glyph_drawn {
                 if is_cursor_cell && is_app_cursor_mode {
                     std::mem::swap(&mut fg, &mut bg);
                 }
@@ -490,6 +517,28 @@ fn undercurl(x0: f32, x1: f32, y: f32, thickness: f32, color: Color32) -> Shape 
     let phase = x1 / wavelength * std::f32::consts::TAU;
     points.push(Pos2::new(x1, y + phase.sin() * amp));
     Shape::line(points, Stroke::new(thickness, color))
+}
+
+/// Map one of the 8 normal palette colours to its bright counterpart, for the
+/// `bold_is_bright` option. Anything else (256-colour, truecolour, the named
+/// fg/bg/cursor slots) is returned unchanged.
+fn brighten(c: Color) -> Color {
+    use NamedColor as N;
+    match c {
+        Color::Named(n) => Color::Named(match n {
+            N::Black => N::BrightBlack,
+            N::Red => N::BrightRed,
+            N::Green => N::BrightGreen,
+            N::Yellow => N::BrightYellow,
+            N::Blue => N::BrightBlue,
+            N::Magenta => N::BrightMagenta,
+            N::Cyan => N::BrightCyan,
+            N::White => N::BrightWhite,
+            other => other,
+        }),
+        Color::Indexed(i) if i < 8 => Color::Indexed(i + 8),
+        other => other,
+    }
 }
 
 /// Resolve an ANSI color to pixels: a live OSC 4/10/11/12 override if the app
@@ -874,9 +923,24 @@ fn process_mouse_move(
 
 #[cfg(test)]
 mod tests {
-    use super::{theme_rgb, underline_kind, UnderlineKind};
+    use super::{brighten, theme_rgb, underline_kind, UnderlineKind};
     use crate::theme::TerminalTheme;
     use alacritty_terminal::term::cell::Flags;
+    use alacritty_terminal::vte::ansi::{Color, NamedColor};
+
+    #[test]
+    fn brighten_maps_only_the_normal_eight() {
+        assert_eq!(
+            brighten(Color::Named(NamedColor::Red)),
+            Color::Named(NamedColor::BrightRed)
+        );
+        assert_eq!(brighten(Color::Indexed(2)), Color::Indexed(10));
+        assert_eq!(brighten(Color::Indexed(200)), Color::Indexed(200));
+        assert_eq!(
+            brighten(Color::Named(NamedColor::Foreground)),
+            Color::Named(NamedColor::Foreground)
+        );
+    }
 
     #[test]
     fn underline_kind_picks_the_right_style() {

@@ -25,6 +25,9 @@ pub struct Config {
     pub font_family: Option<String>,
     /// Terminal font size in points.
     pub font_size: f32,
+    /// Render bold text with the bright palette entry (SGR 1 → colours 8–15),
+    /// as many terminals do. `false` by default.
+    pub bold_is_bright: bool,
     /// Scrollback buffer size, in lines. (Reserved: wired to the backend in a
     /// later milestone.)
     pub scrollback_lines: u32,
@@ -239,6 +242,7 @@ impl Default for Config {
         Self {
             font_family: None,
             font_size: 14.0,
+            bold_is_bright: false,
             scrollback_lines: 10_000,
             shell: None,
             shell_args: Vec::new(),

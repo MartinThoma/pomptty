@@ -1471,6 +1471,7 @@ impl eframe::App for PompttyApp {
                 )
                 .set_theme(self.theme.clone())
                 .set_font(TerminalFont::new(font_settings))
+                .set_bold_is_bright(self.config.bold_is_bright)
                 .set_size(ui.available_size());
             let response = ui.add(view);
 

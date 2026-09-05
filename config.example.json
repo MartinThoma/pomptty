@@ -1,6 +1,7 @@
 {
   "font_family": null,
   "font_size": 14.0,
+  "bold_is_bright": false,
   "scrollback_lines": 10000,
   "shell": null,
   "shell_args": [],
