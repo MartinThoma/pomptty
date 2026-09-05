@@ -43,6 +43,8 @@ pub struct TabView<'a> {
     pub id: TabId,
     pub title: &'a str,
     pub color: Option<TabColor>,
+    /// Running something as `root` — gets a red dot.
+    pub is_root: bool,
 }
 
 pub struct TabStrip<'a> {
@@ -391,6 +393,7 @@ fn tab_row(
             s,
             tab.title,
             tab.color,
+            tab.is_root,
             i == active,
             enters[i],
             r,
@@ -470,6 +473,7 @@ fn tab_row(
             s,
             tabs[i].title,
             tabs[i].color,
+            tabs[i].is_root,
             i == active,
             enters[i],
             rects[i],
@@ -492,6 +496,7 @@ fn paint_tab(
     s: &Surfaces,
     title: &str,
     color: Option<TabColor>,
+    is_root: bool,
     selected: bool,
     enter: f32,
     rect: Rect,
@@ -561,10 +566,19 @@ fn paint_tab(
     } else {
         s.text_muted
     };
-    let text_clip = Rect::from_min_max(
-        pos2(rect.left() + TAB_PAD, rect.top()),
-        pos2(clip_right, rect.bottom()),
-    );
+    // Superuser marker: a small red dot before the title.
+    let text_left = if is_root {
+        ui.painter().circle_filled(
+            pos2(rect.left() + TAB_PAD + 3.0, rect.center().y),
+            3.0,
+            s.err.gamma_multiply(a),
+        );
+        rect.left() + TAB_PAD + 12.0
+    } else {
+        rect.left() + TAB_PAD
+    };
+    let text_clip =
+        Rect::from_min_max(pos2(text_left, rect.top()), pos2(clip_right, rect.bottom()));
     if text_clip.width() > 2.0 {
         let budget = (text_clip.width() / 6.9).floor().max(1.0) as usize;
         let galley = ui.painter().layout_no_wrap(

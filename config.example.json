@@ -78,5 +78,8 @@
   },
   "notifications": {
     "long_command_secs": 300
+  },
+  "security": {
+    "superuser_warning": true
   }
 }

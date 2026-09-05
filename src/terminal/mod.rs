@@ -62,6 +62,10 @@ pub struct TerminalTab {
     /// A user-assigned color (context-menu "Color"), shown as a stripe on the
     /// tab. Purely cosmetic.
     pub color: Option<TabColor>,
+    /// Whether the shell — or something running under it (`sudo -s`, `su`, a
+    /// long `sudo …`) — is `root`. Drives the red superuser warning. Refreshed
+    /// on a poll by the app; `false` off Linux.
+    pub is_root: bool,
     pub backend: TerminalBackend,
 }
 
@@ -100,6 +104,7 @@ impl TerminalTab {
             title: format!("Terminal {id}"),
             manual_title: None,
             color: None,
+            is_root: false,
             backend,
         })
     }
@@ -133,6 +138,12 @@ impl TerminalTab {
     /// if the shell has exited.
     pub fn shell_cwd(&self) -> Option<String> {
         shell_cwd(self.backend.pty_id())
+    }
+
+    /// Re-check whether this tab is running anything as `root`. Cheap-ish (one
+    /// `/proc` scan); the app calls this on a slow poll, not every frame.
+    pub fn refresh_root_status(&mut self) {
+        self.is_root = tab_runs_as_root(self.backend.pty_id());
     }
 }
 
@@ -204,9 +215,78 @@ fn has_child_process(_shell_pid: u32) -> bool {
     false
 }
 
+/// Whether `shell_pid` or any of its descendants is running with effective
+/// uid 0. One `/proc` scan: read `ppid` from `stat` and the effective uid
+/// from `status` for every process, then walk down from `shell_pid`.
+#[cfg(target_os = "linux")]
+fn tab_runs_as_root(shell_pid: u32) -> bool {
+    use std::collections::HashMap;
+
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    // pid -> (ppid, is_root)
+    let mut procs: HashMap<u32, (u32, bool)> = HashMap::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Ok(pid) = name.parse::<u32>() else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        let Some((ppid, _state)) = parse_stat_ppid_state(&stat) else {
+            continue;
+        };
+        let is_root = std::fs::read_to_string(entry.path().join("status"))
+            .ok()
+            .and_then(|s| status_effective_uid(&s))
+            .is_some_and(|uid| uid == 0);
+        procs.insert(pid, (ppid, is_root));
+    }
+
+    // BFS down the process tree from the shell.
+    let mut stack = vec![shell_pid];
+    let mut seen = vec![shell_pid];
+    while let Some(pid) = stack.pop() {
+        if procs.get(&pid).is_some_and(|&(_, root)| root) {
+            return true;
+        }
+        for (&child, &(ppid, _)) in &procs {
+            if ppid == pid && !seen.contains(&child) {
+                seen.push(child);
+                stack.push(child);
+            }
+        }
+    }
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn tab_runs_as_root(_shell_pid: u32) -> bool {
+    false
+}
+
+/// The effective uid (2nd field of the `Uid:` line) from `/proc/<pid>/status`.
+#[cfg(target_os = "linux")]
+fn status_effective_uid(status: &str) -> Option<u32> {
+    let line = status.lines().find(|l| l.starts_with("Uid:"))?;
+    line.split_whitespace().nth(2)?.parse().ok()
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::parse_stat_ppid_state;
+    use super::{parse_stat_ppid_state, status_effective_uid};
+
+    #[test]
+    fn reads_the_effective_uid_from_status() {
+        let status = "Name:\tbash\nState:\tS (sleeping)\nUid:\t1000\t1000\t1000\t1000\n";
+        assert_eq!(status_effective_uid(status), Some(1000));
+        let root = "Name:\tbash\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n";
+        assert_eq!(status_effective_uid(root), Some(0));
+        assert_eq!(status_effective_uid("no uid line here"), None);
+    }
 
     #[test]
     fn parses_a_plain_stat_line() {

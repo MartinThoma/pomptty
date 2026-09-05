@@ -70,6 +70,9 @@ const FONT_PERSIST_DELAY: Duration = Duration::from_millis(500);
 /// "restore after a crash" lose only a little rather than nothing.
 const SESSION_SAVE_INTERVAL: Duration = Duration::from_secs(10);
 
+/// How often to re-check whether each tab is running something as `root`.
+const ROOT_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
 pub struct PompttyApp {
     config: Config,
     config_path: PathBuf,
@@ -135,6 +138,8 @@ pub struct PompttyApp {
     rename_buf: String,
     /// The last time the open-tabs session was checked against disk.
     session_last_saved: Instant,
+    /// The last time each tab's root status was re-checked.
+    root_checked_at: Instant,
     /// What was last written (or loaded), to skip a no-op save.
     session_last_written: Option<Session>,
     toast: Option<Toast>,
@@ -260,6 +265,9 @@ impl PompttyApp {
             rename_target: None,
             rename_buf: String::new(),
             session_last_saved: Instant::now(),
+            root_checked_at: Instant::now()
+                .checked_sub(ROOT_POLL_INTERVAL)
+                .unwrap_or_else(Instant::now),
             session_last_written: session,
             toast: None,
             pending_paste: None,
@@ -1016,6 +1024,27 @@ impl PompttyApp {
         }
     }
 
+    /// Re-check every tab's root status on the [`ROOT_POLL_INTERVAL`] and keep
+    /// the UI ticking so the indicator appears/clears within a couple seconds.
+    fn poll_root_status(&mut self, ctx: &egui::Context) {
+        if !self.config.security.superuser_warning {
+            for tab in &mut self.tabs {
+                tab.is_root = false;
+            }
+            return;
+        }
+        match ROOT_POLL_INTERVAL.checked_sub(self.root_checked_at.elapsed()) {
+            Some(remaining) => ctx.request_repaint_after(remaining),
+            None => {
+                self.root_checked_at = Instant::now();
+                for tab in &mut self.tabs {
+                    tab.refresh_root_status();
+                }
+                ctx.request_repaint_after(ROOT_POLL_INTERVAL);
+            }
+        }
+    }
+
     /// Open the `Ctrl+R` history overlay. With history disabled in the config,
     /// forward a real `Ctrl+R` to the shell instead so its own reverse-i-search
     /// still works.
@@ -1172,17 +1201,18 @@ impl eframe::App for PompttyApp {
             resize_edges(ui, &ctx);
         }
 
-        let tab_meta: Vec<(TabId, String, Option<TabColor>)> = self
+        let tab_meta: Vec<(TabId, String, Option<TabColor>, bool)> = self
             .tabs
             .iter()
-            .map(|t| (t.id, t.display_title().to_owned(), t.color))
+            .map(|t| (t.id, t.display_title().to_owned(), t.color, t.is_root))
             .collect();
         let tabs: Vec<TabView<'_>> = tab_meta
             .iter()
-            .map(|(id, title, color)| TabView {
+            .map(|(id, title, color, is_root)| TabView {
                 id: *id,
                 title,
                 color: *color,
+                is_root: *is_root,
             })
             .collect();
         let closed_titles: Vec<&str> = self
@@ -1248,6 +1278,7 @@ impl eframe::App for PompttyApp {
         self.sync_window_title(&ctx);
         self.persist_font_size_when_settled(&ctx);
         self.maybe_persist_session(&ctx);
+        self.poll_root_status(&ctx);
 
         if self.pending_close.is_some() {
             self.show_close_confirmation(&ctx);
@@ -1411,6 +1442,17 @@ impl eframe::App for PompttyApp {
                 r.shrink(0.5),
                 0,
                 egui::Stroke::new(1.0, surfaces.border),
+                egui::StrokeKind::Inside,
+            );
+        }
+
+        // Superuser warning: a red outline whenever the active tab is running
+        // something as root.
+        if self.tabs.get(self.active).is_some_and(|t| t.is_root) {
+            ui.painter().rect_stroke(
+                ctx.content_rect().shrink(1.0),
+                0,
+                egui::Stroke::new(2.0, surfaces.err),
                 egui::StrokeKind::Inside,
             );
         }

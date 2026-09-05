@@ -52,6 +52,26 @@ pub struct Config {
     pub paste: PasteConfig,
     /// Desktop notifications.
     pub notifications: NotificationsConfig,
+    /// Safety indicators.
+    pub security: SecurityConfig,
+}
+
+/// Safety indicators.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecurityConfig {
+    /// Outline the terminal in red and mark the tab when the shell (or
+    /// something under it — `sudo -s`, `su`, a long `sudo …`) is running as
+    /// `root`. `true` by default. Linux only.
+    pub superuser_warning: bool,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            superuser_warning: true,
+        }
+    }
 }
 
 /// Desktop notifications.
@@ -215,6 +235,7 @@ impl Default for Config {
             cursor: CursorConfig::default(),
             paste: PasteConfig::default(),
             notifications: NotificationsConfig::default(),
+            security: SecurityConfig::default(),
         }
     }
 }
