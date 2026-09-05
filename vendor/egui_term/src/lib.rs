@@ -4,7 +4,9 @@
 //! Patched for pomptty:
 //! - M4 slice 4 ("in-terminal polish"): per-cell bold/italic font selection,
 //!   a themed/shaped/blinking/gliding cursor, plain-hover OSC 8 hyperlink
-//!   detection.
+//!   detection, underline (single / double / undercurl / dotted / dashed +
+//!   SGR 58 underline colour) and strikeout rendering (`push_text_decoration`
+//!   — `alacritty_terminal` already tracks the flags).
 //! - M9: bracketed paste (`BackendCommand::Paste` / `paste_payload`);
 //!   OSC 4/10/11/12 dynamic colors (`RenderableContent::colors` +
 //!   `resolve_color`), plus the query form answered via `theme_rgb` +

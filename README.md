@@ -68,7 +68,9 @@ the PTY. Linux and Windows are supported; macOS is on the
   and middle-click paste the X11 primary selection; bracketed paste so a
   multi-line paste doesn't auto-run; OSC 52 so `tmux` / `vim` can copy to the
   clipboard over SSH.
-- Custom font from a file path, with real bold/italic faces when installed.
+- Custom font from a file path, with real bold/italic faces when installed;
+  underline (single / double / undercurl / dotted / dashed, with `\e[58m`
+  underline colour) and strikethrough — neovim / helix LSP squiggles render.
 - A themed, shaped (block/beam/underline), gliding, blinking cursor — apps that
   set their own style (`vim`'s insert-mode beam) override the configured
   default.

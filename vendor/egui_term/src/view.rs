@@ -293,8 +293,21 @@ impl<'a> TerminalView<'a> {
                 )));
             }
 
-            // Handle hovered hyperlink underline
-            if is_hovered_hyperling {
+            // Underline (SGR 4 / 4:2..4:5) and strikeout (SGR 9), drawn behind
+            // the glyph. `underline_color` is the SGR-58 colour if the app set
+            // one, else the cell's effective foreground.
+            if underline_kind(flags).is_some() || flags.contains(cell::Flags::STRIKEOUT) {
+                let deco = indexed
+                    .cell
+                    .underline_color()
+                    .map(|c| resolve_color(&self.theme, colors, c))
+                    .unwrap_or(fg);
+                push_text_decoration(&mut shapes, flags, x, x + cell_width, y, cell_height, deco);
+            }
+
+            // Hovered-hyperlink underline — skipped when the cell already has a
+            // real SGR underline, so a `\e[4m` link isn't underlined twice.
+            if is_hovered_hyperling && !flags.intersects(cell::Flags::ALL_UNDERLINES) {
                 let underline_height = y + cell_height;
                 shapes.push(Shape::LineSegment {
                     points: [
@@ -381,6 +394,102 @@ pub fn theme_rgb(theme: &TerminalTheme, index: usize) -> Rgb {
         g: c.g(),
         b: c.b(),
     }
+}
+
+/// Which underline style a cell's flags select. A more specific style wins if
+/// several bits are somehow set at once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnderlineKind {
+    Single,
+    Double,
+    Curl,
+    Dotted,
+    Dashed,
+}
+
+fn underline_kind(flags: cell::Flags) -> Option<UnderlineKind> {
+    use cell::Flags as F;
+    if flags.contains(F::DOUBLE_UNDERLINE) {
+        Some(UnderlineKind::Double)
+    } else if flags.contains(F::UNDERCURL) {
+        Some(UnderlineKind::Curl)
+    } else if flags.contains(F::DOTTED_UNDERLINE) {
+        Some(UnderlineKind::Dotted)
+    } else if flags.contains(F::DASHED_UNDERLINE) {
+        Some(UnderlineKind::Dashed)
+    } else if flags.contains(F::UNDERLINE) {
+        Some(UnderlineKind::Single)
+    } else {
+        None
+    }
+}
+
+/// Append the underline (SGR 4 / 4:2 / 4:3 / 4:4 / 4:5) and strikeout (SGR 9)
+/// shapes for one cell. `color` is the SGR-58 underline colour if set, else
+/// the cell's effective foreground.
+fn push_text_decoration(
+    shapes: &mut Vec<Shape>,
+    flags: cell::Flags,
+    x0: f32,
+    x1: f32,
+    y_top: f32,
+    cell_height: f32,
+    color: Color32,
+) {
+    let thickness = (cell_height * 0.07).clamp(1.0, 3.0);
+    let uy = y_top + cell_height - thickness * 2.0;
+    let seg = |shapes: &mut Vec<Shape>, y: f32, t: f32| {
+        shapes.push(Shape::LineSegment {
+            points: [Pos2::new(x0, y), Pos2::new(x1, y)],
+            stroke: Stroke::new(t, color),
+        });
+    };
+
+    match underline_kind(flags) {
+        Some(UnderlineKind::Single) => seg(shapes, uy, thickness),
+        Some(UnderlineKind::Double) => {
+            let g = (thickness * 0.9).max(1.0);
+            seg(shapes, uy - g, thickness * 0.75);
+            seg(shapes, uy + g, thickness * 0.75);
+        }
+        Some(UnderlineKind::Curl) => shapes.push(undercurl(x0, x1, uy, thickness, color)),
+        Some(UnderlineKind::Dotted) => shapes.extend(Shape::dashed_line(
+            &[Pos2::new(x0, uy), Pos2::new(x1, uy)],
+            Stroke::new(thickness, color),
+            thickness,
+            thickness * 1.5,
+        )),
+        Some(UnderlineKind::Dashed) => shapes.extend(Shape::dashed_line(
+            &[Pos2::new(x0, uy), Pos2::new(x1, uy)],
+            Stroke::new(thickness, color),
+            thickness * 3.0,
+            thickness * 2.5,
+        )),
+        None => {}
+    }
+
+    if flags.contains(cell::Flags::STRIKEOUT) {
+        seg(shapes, y_top + cell_height * 0.52, thickness);
+    }
+}
+
+/// A sine-wave undercurl across `x0..x1`. The phase is tied to the absolute
+/// `x` so the wave of one cell joins up with its neighbours' rather than
+/// restarting at every cell boundary.
+fn undercurl(x0: f32, x1: f32, y: f32, thickness: f32, color: Color32) -> Shape {
+    let wavelength = (thickness * 3.0).max(6.0);
+    let amp = thickness;
+    let step = 1.5_f32;
+    let mut points = Vec::with_capacity(((x1 - x0) / step) as usize + 2);
+    let mut x = x0;
+    while x < x1 {
+        let phase = x / wavelength * std::f32::consts::TAU;
+        points.push(Pos2::new(x, y + phase.sin() * amp));
+        x += step;
+    }
+    let phase = x1 / wavelength * std::f32::consts::TAU;
+    points.push(Pos2::new(x1, y + phase.sin() * amp));
+    Shape::line(points, Stroke::new(thickness, color))
 }
 
 /// Resolve an ANSI color to pixels: a live OSC 4/10/11/12 override if the app
@@ -765,8 +874,34 @@ fn process_mouse_move(
 
 #[cfg(test)]
 mod tests {
-    use super::theme_rgb;
+    use super::{theme_rgb, underline_kind, UnderlineKind};
     use crate::theme::TerminalTheme;
+    use alacritty_terminal::term::cell::Flags;
+
+    #[test]
+    fn underline_kind_picks_the_right_style() {
+        assert_eq!(underline_kind(Flags::empty()), None);
+        assert_eq!(
+            underline_kind(Flags::UNDERLINE),
+            Some(UnderlineKind::Single)
+        );
+        assert_eq!(underline_kind(Flags::UNDERCURL), Some(UnderlineKind::Curl));
+        assert_eq!(
+            underline_kind(Flags::DOTTED_UNDERLINE),
+            Some(UnderlineKind::Dotted)
+        );
+        // A more specific style wins over plain UNDERLINE.
+        assert_eq!(
+            underline_kind(Flags::UNDERLINE | Flags::UNDERCURL),
+            Some(UnderlineKind::Curl)
+        );
+        assert_eq!(
+            underline_kind(Flags::DOUBLE_UNDERLINE | Flags::UNDERCURL),
+            Some(UnderlineKind::Double)
+        );
+        // STRIKEOUT alone is not an underline.
+        assert_eq!(underline_kind(Flags::STRIKEOUT), None);
+    }
 
     #[test]
     fn theme_rgb_maps_named_and_indexed_slots() {

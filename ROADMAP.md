@@ -127,11 +127,12 @@ exposure; forked into [`vendor/egui_term/`](vendor/egui_term)):
       OpenType GSUB shaping (`rustybuzz`), which egui/epaint's text system
       doesn't provide at all (cmap-only glyph lookup) — a full custom
       text-rendering subsystem, materially bigger than the rest of this slice
-- [ ] **underline / strikethrough** — the fork renders *no* underline today
-      (only hyperlink hover). Add `\e[4m`, plus styled underlines
-      (`\e[4:2m` double, `:3` undercurl, `:4` dotted, `:5` dashed) and
-      underline color (`\e[58…m`) — neovim/helix LSP squiggles depend on
-      this — and `\e[9m` strikethrough
+- [x] **underline / strikethrough** — `\e[4m`, styled underlines (`\e[4:2m`
+      double, `:3` undercurl, `:4` dotted, `:5` dashed), underline colour
+      (`\e[58…m`) and `\e[9m` strikeout, rendered in the fork's `view.rs`
+      (`underline_kind` + `push_text_decoration`; `alacritty_terminal`
+      already parses and stores the flags, so the parser is untouched).
+      neovim / helix LSP squiggles now render
 - [ ] **box-drawing / block / Powerline glyphs drawn by pomptty**, not the
       font — pixel-perfect `─│┌┘`, shade blocks, and powerline separators at
       any size/font, the way kitty/WezTerm/Alacritty/Ghostty do. Fits
