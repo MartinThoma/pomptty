@@ -12,13 +12,28 @@
 
 use std::sync::{Arc, OnceLock};
 
-use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
-use fontdb::{Database, FaceInfo, Family, Query, Style};
+use egui::{FontData, FontDefinitions, FontFamily, FontId, FontTweak};
+use fontdb::{Database, FaceInfo, Family, Query, Style, Weight};
 
 use crate::config::Config;
 
 const USER_FONT: &str = "pomptty-user-font";
+const USER_FONT_BOLD: &str = "pomptty-user-font-bold";
+const USER_FONT_ITALIC: &str = "pomptty-user-font-italic";
+const USER_FONT_BOLD_ITALIC: &str = "pomptty-user-font-bold-italic";
 const SYMBOL_FONT: &str = "pomptty-symbols";
+
+/// The regular, bold, italic and bold-italic `FontId`s to use for terminal
+/// text, at the current `font_size`. Any style with no real installed face
+/// falls back to the regular `FontId` — never a synthetically emboldened or
+/// slanted regular glyph.
+#[derive(Debug, Clone)]
+pub struct FontVariants {
+    pub regular: FontId,
+    pub bold: FontId,
+    pub italic: FontId,
+    pub bold_italic: FontId,
+}
 
 /// The system font database, scanned once per process (config reloads reuse it).
 fn font_db() -> &'static Database {
@@ -30,9 +45,17 @@ fn font_db() -> &'static Database {
     })
 }
 
-/// Apply the configured font to the egui context. Safe to call again on reload.
-pub fn apply(ctx: &egui::Context, config: &Config) {
+/// Apply the configured font to the egui context, returning the regular /
+/// bold / italic / bold-italic `FontId`s to use at `font_size`. Safe to call
+/// again on reload.
+pub fn apply(ctx: &egui::Context, config: &Config) -> FontVariants {
     let mut fonts = FontDefinitions::default();
+    let mut variants = FontVariants {
+        regular: FontId::monospace(config.font_size),
+        bold: FontId::monospace(config.font_size),
+        italic: FontId::monospace(config.font_size),
+        bold_italic: FontId::monospace(config.font_size),
+    };
 
     if let Some(spec) = &config.font_family {
         match resolve(spec) {
@@ -53,6 +76,43 @@ pub fn apply(ctx: &egui::Context, config: &Config) {
                         .insert(0, USER_FONT.to_owned());
                 }
                 log::info!("using font {spec:?} ({})", font.origin);
+
+                for (slot, name, weight, style) in [
+                    (
+                        &mut variants.bold,
+                        USER_FONT_BOLD,
+                        Weight::BOLD,
+                        Style::Normal,
+                    ),
+                    (
+                        &mut variants.italic,
+                        USER_FONT_ITALIC,
+                        Weight::NORMAL,
+                        Style::Italic,
+                    ),
+                    (
+                        &mut variants.bold_italic,
+                        USER_FONT_BOLD_ITALIC,
+                        Weight::BOLD,
+                        Style::Italic,
+                    ),
+                ] {
+                    if let Some(styled) = resolve_family_styled(spec, weight, style) {
+                        fonts.font_data.insert(
+                            name.to_owned(),
+                            Arc::new(FontData {
+                                font: styled.bytes.into(),
+                                index: styled.index,
+                                tweak: FontTweak::default(),
+                            }),
+                        );
+                        fonts
+                            .families
+                            .insert(FontFamily::Name(name.into()), vec![name.to_owned()]);
+                        *slot = FontId::new(config.font_size, FontFamily::Name(name.into()));
+                        log::info!("using {name} ({})", styled.origin);
+                    }
+                }
             }
             None => log::warn!(
                 "font_family {spec:?}: not a readable font file and no installed \
@@ -86,6 +146,7 @@ pub fn apply(ctx: &egui::Context, config: &Config) {
     }
 
     ctx.set_fonts(fonts);
+    variants
 }
 
 /// Pick an installed Nerd / Powerline font for the private-use icon range,
@@ -164,6 +225,38 @@ fn resolve_family(name: &str) -> Option<ResolvedFont> {
         bytes,
         index,
         origin: format!("installed family {name:?} -> {post_script}"),
+    })
+}
+
+/// Find a *real* bold/italic/bold-italic face of `name` at the given
+/// `weight`/`style` — never a synthetic embolden or slant of the regular
+/// face. Unlike [`best_face_ci`], style must match exactly (an italic slot
+/// only accepts a genuinely italic or oblique face); among faces of that
+/// style, the closest weight wins.
+fn resolve_family_styled(name: &str, weight: Weight, style: Style) -> Option<ResolvedFont> {
+    let db = font_db();
+    let want = name.to_lowercase();
+
+    let id = db
+        .faces()
+        .filter(|f| {
+            f.style == style
+                && f.families
+                    .iter()
+                    .any(|(family, _)| family.to_lowercase() == want)
+        })
+        .min_by_key(|f| f.weight.0.abs_diff(weight.0))
+        .map(|f| f.id)?;
+
+    let post_script = db
+        .face(id)
+        .map(|f| f.post_script_name.clone())
+        .unwrap_or_default();
+    let (bytes, index) = db.with_face_data(id, |data, index| (data.to_vec(), index))?;
+    Some(ResolvedFont {
+        bytes,
+        index,
+        origin: format!("installed family {name:?} styled -> {post_script}"),
     })
 }
 

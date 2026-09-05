@@ -1039,7 +1039,6 @@ dependencies = [
 [[package]]
 name = "egui_term"
 version = "0.1.0"
-source = "git+https://github.com/Harzu/egui_term?rev=31bbc7ab8503c9518fcee5717cfa29011e59f451#31bbc7ab8503c9518fcee5717cfa29011e59f451"
 dependencies = [
  "alacritty_terminal",
  "anyhow",

@@ -190,8 +190,14 @@ impl From<PaletteConfig> for ColorPalette {
         // `egui_term::ColorPalette` also carries `dim_*` entries; we leave those
         // at their defaults (rarely exercised by real programs) and only map the
         // 18 standard colors plus fg/bg.
+        let foreground = norm_hex(&p.foreground);
         ColorPalette {
-            foreground: norm_hex(&p.foreground),
+            cursor: p
+                .cursor
+                .as_deref()
+                .map(norm_hex)
+                .unwrap_or_else(|| foreground.clone()),
+            foreground,
             background: norm_hex(&p.background),
             black: norm_hex(&p.black),
             red: norm_hex(&p.red),

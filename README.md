@@ -57,7 +57,12 @@ the PTY. Linux is the only supported platform today; macOS and Windows are on th
 - Mouse selection with copy/paste
   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> /
   <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>).
-- Custom font from a file path.
+- Custom font from a file path, with real bold/italic faces when installed.
+- A themed, shaped (block/beam/underline), gliding, blinking cursor — apps that
+  set their own style (`vim`'s insert-mode beam) override the configured
+  default.
+- OSC 8 hyperlinks underline on plain hover; <kbd>Ctrl</kbd>+click opens the
+  real target URI even when the visible text isn't a URL.
 - A confirmation prompt before closing a tab that still has a process running.
 
 ## Installation
@@ -201,11 +206,14 @@ config.
 | `window` | `width` / `height` in logical pixels, and `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly; takes effect on restart). |
 | `history` | `enabled` (default `true`) — whether <kbd>Ctrl</kbd>+<kbd>R</kbd> opens the overlay (see [Shell integration](#shell-integration)); `max_results` (default `50`) — rows shown at once. |
 | `session` | `restore` (default `true`) — reopen the last run's tabs, directories and renames on launch; also stops pomptty recording them when `false`. Saved to `session.json` next to the history logs. |
+| `cursor` | `shape` (default `"block"`; also `"beam"`, `"underline"`) and `blink` (default `true`) — the cursor's appearance before an app sets its own via DECSCUSR (`vim`'s insert-mode beam, for instance, still overrides this at runtime). |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the
 fallback chain, so powerline prompts and devicon themes render their icons rather
-than boxes — install one if you use such a prompt. Ligatures and per-glyph
-bold/italic aren't rendered yet (a terminal-backend limitation).
+than boxes — install one if you use such a prompt. Bold and italic text render
+with the real bold/italic faces of the configured family when installed
+(falling back to the regular face, never a synthetic embolden/oblique, when
+they aren't). Ligatures aren't rendered yet (a terminal-backend limitation).
 
 The terminal **bell** (`\a`) flashes the window briefly, and flags the taskbar
 for attention if the window isn't focused.

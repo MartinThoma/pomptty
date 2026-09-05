@@ -46,6 +46,46 @@ pub struct Config {
     pub history: HistoryConfig,
     /// Reopening tabs from the last run on startup.
     pub session: SessionConfig,
+    /// Cursor shape and blink, before any app overrides it (e.g. via DECSCUSR).
+    pub cursor: CursorConfig,
+}
+
+/// The cursor's default shape and blink. An app that sets its own cursor style
+/// at runtime (vim's insert-mode beam, say) overrides this — it's only what's
+/// shown before anything has.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CursorConfig {
+    pub shape: CursorShapeConfig,
+    pub blink: bool,
+}
+
+impl Default for CursorConfig {
+    fn default() -> Self {
+        Self {
+            shape: CursorShapeConfig::default(),
+            blink: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CursorShapeConfig {
+    #[default]
+    Block,
+    Beam,
+    Underline,
+}
+
+impl CursorShapeConfig {
+    pub fn to_egui_term(self) -> egui_term::CursorShape {
+        match self {
+            CursorShapeConfig::Block => egui_term::CursorShape::Block,
+            CursorShapeConfig::Beam => egui_term::CursorShape::Beam,
+            CursorShapeConfig::Underline => egui_term::CursorShape::Underline,
+        }
+    }
 }
 
 /// Session restore: remember the open tabs (directory + any rename) across
@@ -132,6 +172,7 @@ impl Default for Config {
             window: WindowConfig::default(),
             history: HistoryConfig::default(),
             session: SessionConfig::default(),
+            cursor: CursorConfig::default(),
         }
     }
 }

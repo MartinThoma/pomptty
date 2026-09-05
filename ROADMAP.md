@@ -109,13 +109,22 @@ The reason someone opens the screenshot and installs it.
       powerline prompts / devicons render instead of boxes. Zero binary weight.
 - [x] terminal bell: brief accent flash + `RequestUserAttention` when unfocused
 
-**Slice 4 — in-terminal polish** (needs an `egui_term` fork — it renders the
-grid one `char` at a time with a single `FontId`):
+**Slice 4 — in-terminal polish** (needed forking `egui_term` — it rendered the
+grid one `char` at a time with a single `FontId`, no cursor-style/hyperlink
+exposure; forked into [`vendor/egui_term/`](vendor/egui_term)):
 
-- [ ] **ligatures** and **per-cell bold / italic** (real weight faces)
-- [ ] smooth cursor (glide between cells) + block / beam / underline / blink /
-      themed color from config
-- [ ] OSC 8 hyperlink hover affordance (plain hover, not `Ctrl`+hover)
+- [x] **per-cell bold / italic** (real weight faces, resolved per family via
+      `fontdb`; falls back to the regular face rather than a synthetic
+      embolden/oblique when no real one is installed)
+- [x] smooth cursor (glide between cells) + block / beam / underline / blink /
+      themed color from config — an app's own DECSCUSR style (`vim`'s
+      insert-mode beam) still overrides the configured default
+- [x] OSC 8 hyperlink hover affordance (plain hover, not `Ctrl`+hover); a bare
+      typed URL still only underlines under `Ctrl`+hover
+- [ ] **ligatures** — split out as its own future slice: real ligatures need
+      OpenType GSUB shaping (`rustybuzz`), which egui/epaint's text system
+      doesn't provide at all (cmap-only glyph lookup) — a full custom
+      text-rendering subsystem, materially bigger than the rest of this slice
 
 **Slice 5 — depth**: optional background blur / translucency; optional background
 image with dimming + vignette; faint top-edge pane highlight.

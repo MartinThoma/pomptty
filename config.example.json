@@ -68,5 +68,9 @@
   },
   "session": {
     "restore": true
+  },
+  "cursor": {
+    "shape": "block",
+    "blink": true
   }
 }

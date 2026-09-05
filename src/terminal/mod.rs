@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
 use anyhow::{Context, Result};
-use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
+use egui_term::{BackendCommand, BackendSettings, CursorShape, PtyEvent, TerminalBackend};
 use serde::{Deserialize, Serialize};
 
 /// Identifier for a tab. Monotonic; never reused within a run.
@@ -66,6 +66,7 @@ pub struct TerminalTab {
 }
 
 impl TerminalTab {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: TabId,
         ctx: egui::Context,
@@ -73,6 +74,8 @@ impl TerminalTab {
         shell: Option<String>,
         shell_args: Vec<String>,
         cwd: Option<PathBuf>,
+        cursor_shape: CursorShape,
+        cursor_blinking: bool,
     ) -> Result<Self> {
         let shell = shell
             .or_else(|| std::env::var("SHELL").ok())
@@ -89,6 +92,8 @@ impl TerminalTab {
                 shell,
                 args: shell_args,
                 working_directory: cwd.filter(|p| p.is_dir()),
+                cursor_shape,
+                cursor_blinking,
             },
         )
         .context("failed to start the shell process")?;

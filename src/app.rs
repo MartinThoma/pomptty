@@ -10,6 +10,7 @@ use notify::{RecursiveMode, Watcher};
 
 use crate::config::Config;
 use crate::config::keybindings::{Action, Chord};
+use crate::fonts::FontVariants;
 use crate::history::log_store::LogStore;
 use crate::session::{Session, restore_active};
 use crate::terminal::{TabColor, TabId, TerminalTab};
@@ -84,6 +85,10 @@ pub struct PompttyApp {
     /// been persisted to the config file (see [`FONT_PERSIST_DELAY`]).
     font_dirty: bool,
     font_touched_at: Instant,
+    /// The resolved bold/italic/bold-italic faces for the configured family
+    /// (falling back to the regular face for any style with no real installed
+    /// variant). Rebuilt whenever the font is (re-)applied.
+    font_variants: FontVariants,
 
     tabs: Vec<TerminalTab>,
     active: usize,
@@ -134,7 +139,7 @@ impl PompttyApp {
         config_error: Option<String>,
     ) -> Result<Self> {
         let ctx = &cc.egui_ctx;
-        crate::fonts::apply(ctx, &config);
+        let font_variants = crate::fonts::apply(ctx, &config);
         crate::ui::style::apply(ctx, &config.theme);
 
         let (pty_events_tx, pty_events_rx) = channel();
@@ -151,6 +156,8 @@ impl PompttyApp {
                 config.shell.clone(),
                 config.shell_args.clone(),
                 saved.cwd.clone().map(PathBuf::from),
+                config.cursor.shape.to_egui_term(),
+                config.cursor.blink,
             ) {
                 Ok(mut tab) => {
                     tab.manual_title = saved.title.clone();
@@ -175,6 +182,8 @@ impl PompttyApp {
                 config.shell.clone(),
                 config.shell_args.clone(),
                 None,
+                config.cursor.shape.to_egui_term(),
+                config.cursor.blink,
             )?;
             next_tab_id += 1;
             tabs.push(first);
@@ -192,6 +201,7 @@ impl PompttyApp {
             configured_font_size: config.font_size,
             font_dirty: false,
             font_touched_at: Instant::now(),
+            font_variants,
             bindings: config.keybindings.compile(),
             config,
             config_path,
@@ -331,6 +341,8 @@ impl PompttyApp {
             self.config.shell.clone(),
             self.config.shell_args.clone(),
             cwd,
+            self.config.cursor.shape.to_egui_term(),
+            self.config.cursor.blink,
         ) {
             Ok(mut tab) => {
                 tab.manual_title = manual_title;
@@ -742,7 +754,7 @@ impl PompttyApp {
         self.font_size = cfg.font_size;
         self.font_dirty = false;
         self.bindings = cfg.keybindings.compile();
-        crate::fonts::apply(ctx, &cfg);
+        self.font_variants = crate::fonts::apply(ctx, &cfg);
         crate::ui::style::apply(ctx, &cfg.theme);
         self.config = cfg;
         self.set_toast("Config reloaded");
@@ -766,6 +778,19 @@ impl PompttyApp {
             self.font_dirty = true;
         }
         self.font_touched_at = Instant::now();
+    }
+
+    /// The regular/bold/italic/bold-italic faces to render with, at the
+    /// current (possibly zoomed) `font_size` — reusing the families resolved
+    /// by [`crate::fonts::apply`], just resized.
+    fn font_settings(&self) -> FontSettings {
+        let resize = |f: &egui::FontId| egui::FontId::new(self.font_size, f.family.clone());
+        FontSettings {
+            font_type: resize(&self.font_variants.regular),
+            bold: Some(resize(&self.font_variants.bold)),
+            italic: Some(resize(&self.font_variants.italic)),
+            bold_italic: Some(resize(&self.font_variants.bold_italic)),
+        }
     }
 
     /// Once the font size has been stable for [`FONT_PERSIST_DELAY`], write it
@@ -1079,6 +1104,7 @@ impl eframe::App for PompttyApp {
         let panel = egui::Frame::new()
             .fill(surfaces.bg)
             .inner_margin(egui::Margin::same(TERMINAL_MARGIN));
+        let font_settings = self.font_settings();
         egui::CentralPanel::default().frame(panel).show(ui, |ui| {
             let tab = &mut self.tabs[self.active];
             let view = TerminalView::new(ui, &mut tab.backend)
@@ -1090,9 +1116,7 @@ impl eframe::App for PompttyApp {
                         && self.omnibox.is_none(),
                 )
                 .set_theme(self.theme.clone())
-                .set_font(TerminalFont::new(FontSettings {
-                    font_type: egui::FontId::monospace(self.font_size),
-                }))
+                .set_font(TerminalFont::new(font_settings))
                 .set_size(ui.available_size());
             ui.add(view);
         });
