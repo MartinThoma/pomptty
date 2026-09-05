@@ -128,6 +128,8 @@ pub struct PompttyApp {
     /// What was last written (or loaded), to skip a no-op save.
     session_last_written: Option<Session>,
     toast: Option<Toast>,
+    /// A multi-line paste (target tab + text) waiting on the confirm dialog.
+    pending_paste: Option<(TabId, String)>,
     /// The X11/Wayland `PRIMARY` selection — mirrored from the mouse
     /// selection, pasted on middle-click. A no-op off Linux.
     primary: PrimarySelection,
@@ -242,6 +244,7 @@ impl PompttyApp {
             session_last_saved: Instant::now(),
             session_last_written: session,
             toast: None,
+            pending_paste: None,
             primary: PrimarySelection::new(),
             bell_at: None,
             title_shown: String::new(),
@@ -579,6 +582,112 @@ impl PompttyApp {
         }
     }
 
+    /// Draw the "you're about to paste multiple lines" dialog for
+    /// `self.pending_paste` and act on the choice.
+    fn show_paste_confirmation(&mut self, ctx: &egui::Context) {
+        let Some((id, text)) = self.pending_paste.clone() else {
+            return;
+        };
+
+        let lines: Vec<&str> = text.split('\n').collect();
+        let n = lines.len();
+        let preview: String = lines
+            .iter()
+            .take(6)
+            .map(|l| {
+                let l = l.trim_end();
+                if l.chars().count() > 68 {
+                    format!("{}…", l.chars().take(67).collect::<String>())
+                } else {
+                    l.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let more = n.saturating_sub(6);
+
+        let s = Surfaces::from_theme(&self.config.theme);
+        let mut paste = false;
+        let mut cancel = false;
+        let vis = ctx.animate_bool_with_time(egui::Id::new("pomptty_paste_anim"), true, 0.11);
+        let shadow_alpha = if self.config.theme.is_dark() { 130 } else { 55 };
+        let frame = egui::Frame::new()
+            .fill(s.raised)
+            .stroke(egui::Stroke::new(1.0, s.border))
+            .corner_radius(12)
+            .inner_margin(egui::Margin::same(20))
+            .shadow(egui::Shadow {
+                offset: [0, 12],
+                blur: 34,
+                spread: 0,
+                color: egui::Color32::from_black_alpha(shadow_alpha),
+            });
+        let modal = egui::Modal::new(egui::Id::new("pomptty_confirm_paste"))
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.set_opacity(vis);
+                ui.set_width(420.0);
+                ui.label(
+                    egui::RichText::new(format!("Paste {n} lines?"))
+                        .size(16.0)
+                        .strong(),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(
+                        "The shell runs each line as it arrives — the last one right away.",
+                    )
+                    .color(s.text_muted),
+                );
+                ui.add_space(12.0);
+                egui::Frame::new()
+                    .fill(s.bg)
+                    .stroke(egui::Stroke::new(1.0, s.border))
+                    .corner_radius(6)
+                    .inner_margin(egui::Margin::same(10))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(&preview).monospace().size(12.0))
+                                .wrap(),
+                        );
+                        if more > 0 {
+                            ui.label(
+                                egui::RichText::new(format!("+{more} more"))
+                                    .monospace()
+                                    .size(12.0)
+                                    .color(s.text_muted),
+                            );
+                        }
+                    });
+                ui.add_space(16.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let go = egui::Button::new(
+                        egui::RichText::new("Paste").color(crate::ui::style::on_accent(s.accent)),
+                    )
+                    .fill(s.accent)
+                    .corner_radius(7);
+                    if ui.add(go).clicked() {
+                        paste = true;
+                    }
+                    if ui
+                        .add(egui::Button::new("Cancel").fill(egui::Color32::TRANSPARENT))
+                        .clicked()
+                    {
+                        cancel = true;
+                    }
+                });
+            });
+
+        if paste {
+            self.pending_paste = None;
+            if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+                tab.backend.process_command(BackendCommand::Paste(text));
+            }
+        } else if cancel || modal.should_close() {
+            self.pending_paste = None;
+        }
+    }
+
     /// Draw the rename dialog for `self.rename_target` and act on the choice.
     fn show_rename_dialog(&mut self, ctx: &egui::Context) {
         let Some(id) = self.rename_target else { return };
@@ -889,6 +998,44 @@ impl PompttyApp {
         }
     }
 
+    /// Pull a `Ctrl+Shift+V` of multi-line text out of the input queue when it
+    /// would land in a shell that hasn't enabled bracketed paste — where each
+    /// line runs on arrival — and stage it for [`Self::show_paste_confirmation`]
+    /// instead. Single-line pastes, and pastes into an app that turned on
+    /// bracketed paste (it holds the text for review), pass straight through.
+    fn intercept_multiline_paste(&mut self, ctx: &egui::Context) {
+        if !self.config.paste.confirm_multiline || self.pending_paste.is_some() {
+            return;
+        }
+        let mods = ctx.input(|i| i.modifiers);
+        if !(mods.command && mods.shift) {
+            return;
+        }
+        let Some(text) = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Paste(t) if t.contains('\n') => Some(t.clone()),
+                _ => None,
+            })
+        }) else {
+            return;
+        };
+        let tab = &self.tabs[self.active];
+        if tab
+            .backend
+            .last_content()
+            .terminal_mode
+            .contains(TerminalMode::BRACKETED_PASTE)
+        {
+            return;
+        }
+        let id = tab.id;
+        ctx.input_mut(|i| {
+            i.events
+                .retain(|e| !matches!(e, egui::Event::Paste(t) if *t == text));
+        });
+        self.pending_paste = Some((id, text));
+    }
+
     fn dispatch(&mut self, action: Action, ctx: &egui::Context) {
         match action {
             Action::FontIncrease => self.zoom_font(ctx, 1.0),
@@ -930,9 +1077,13 @@ impl eframe::App for PompttyApp {
             return;
         }
         self.pump_config_reload(&ctx);
+        if !self.tabs.is_empty() {
+            self.intercept_multiline_paste(&ctx);
+        }
         // While a modal (close confirmation, history search) is up, the keyboard
         // belongs to it.
         if self.pending_close.is_none()
+            && self.pending_paste.is_none()
             && self.history_overlay.is_none()
             && self.rename_target.is_none()
             && self.tab_search.is_none()
@@ -1043,6 +1194,12 @@ impl eframe::App for PompttyApp {
             ctx.animate_bool_with_time(egui::Id::new("pomptty_rename_anim"), false, 0.0);
         }
 
+        if self.pending_paste.is_some() {
+            self.show_paste_confirmation(&ctx);
+        } else {
+            ctx.animate_bool_with_time(egui::Id::new("pomptty_paste_anim"), false, 0.0);
+        }
+
         // Rendered before the other overlays: picking "Search Tabs" / "Search
         // History" from the palette closes it and opens one of them via the
         // normal dispatch, and that should show up this same frame.
@@ -1136,6 +1293,7 @@ impl eframe::App for PompttyApp {
             let view = TerminalView::new(ui, &mut tab.backend)
                 .set_focus(
                     self.pending_close.is_none()
+                        && self.pending_paste.is_none()
                         && self.history_overlay.is_none()
                         && self.rename_target.is_none()
                         && self.tab_search.is_none()
@@ -1162,7 +1320,16 @@ impl eframe::App for PompttyApp {
                 && !mouse_mode
                 && let Some(text) = self.primary.get()
             {
-                tab.backend.process_command(BackendCommand::Paste(text));
+                let bracketed = tab
+                    .backend
+                    .last_content()
+                    .terminal_mode
+                    .contains(TerminalMode::BRACKETED_PASTE);
+                if self.config.paste.confirm_multiline && text.contains('\n') && !bracketed {
+                    self.pending_paste = Some((tab.id, text));
+                } else {
+                    tab.backend.process_command(BackendCommand::Paste(text));
+                }
             }
         });
 

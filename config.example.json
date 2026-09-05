@@ -72,5 +72,8 @@
   "cursor": {
     "shape": "block",
     "blink": true
+  },
+  "paste": {
+    "confirm_multiline": true
   }
 }

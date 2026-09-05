@@ -235,9 +235,11 @@ bounces off it.
       otherwise newlines are normalised to `\r`, matching Alacritty. Multi-line
       paste no longer auto-runs in a shell. (`paste_payload` in the
       `egui_term` fork's `view.rs`.)
-- [ ] paste safety: a confirm prompt for multi-line / newline-containing
-      pastes even when bracketed paste is off (the shell's own bracketed-paste
-      default already covers the common case)
+- [x] paste safety: a confirm dialog (line count + preview) before pasting
+      newline-containing text into a shell that hasn't turned on bracketed
+      paste — where each line runs on arrival. Covers `Ctrl+Shift+V` and
+      middle-click; single-line pastes and bracketed-paste apps pass straight
+      through. `paste.confirm_multiline` config (default `true`)
 - [~] **OSC 52 clipboard**: apps setting the system clipboard (tmux, neovim,
       `vim` `+clipboard`) now works — the main way to copy *out of* an SSH
       session (`PtyEvent::ClipboardStore` → `ctx.copy_text` in `src/app.rs`;

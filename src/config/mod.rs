@@ -48,6 +48,26 @@ pub struct Config {
     pub session: SessionConfig,
     /// Cursor shape and blink, before any app overrides it (e.g. via DECSCUSR).
     pub cursor: CursorConfig,
+    /// Clipboard-paste behaviour.
+    pub paste: PasteConfig,
+}
+
+/// Paste safety.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PasteConfig {
+    /// Confirm before pasting text that contains a newline into a shell that
+    /// hasn't turned on bracketed paste — where each line would run
+    /// immediately. `true` by default.
+    pub confirm_multiline: bool,
+}
+
+impl Default for PasteConfig {
+    fn default() -> Self {
+        Self {
+            confirm_multiline: true,
+        }
+    }
 }
 
 /// The cursor's default shape and blink. An app that sets its own cursor style
@@ -173,6 +193,7 @@ impl Default for Config {
             history: HistoryConfig::default(),
             session: SessionConfig::default(),
             cursor: CursorConfig::default(),
+            paste: PasteConfig::default(),
         }
     }
 }
