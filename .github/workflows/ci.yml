@@ -13,6 +13,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  supply-chain:
+    name: "cargo-deny (advisories + licenses + sources)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
   test-linux:
     name: "Linux: fmt + clippy + test"
     runs-on: ubuntu-latest

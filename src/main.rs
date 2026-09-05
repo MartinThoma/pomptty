@@ -1,4 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// pomptty's own code is safe Rust. The only exceptions are the two
+// `set_var` blocks in `export_env` below, each individually `#[allow]`ed and
+// `// SAFETY`-commented — so `rg 'allow\(unsafe_code\)' src/` shows every one.
+#![deny(unsafe_code)]
 
 mod app;
 mod config;
@@ -114,6 +118,7 @@ fn run() -> Result<()> {
 /// would inherit whatever launched pomptty (often wrong, or unset — which breaks
 /// line editing, `Ctrl+R`, colors). `xterm-256color` is the safe baseline the
 /// backend emulates.
+#[allow(unsafe_code)]
 fn export_env() {
     // SAFETY: `main` is still single-threaded here — nothing else reads or
     // writes the environment until `eframe::run_native` below.

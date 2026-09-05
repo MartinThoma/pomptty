@@ -1,0 +1,54 @@
+# Supply-chain policy, enforced in CI (`cargo deny check`).
+#
+#   cargo install cargo-deny --locked
+#   cargo deny check
+#
+# The point: anyone can run one command and see that every dependency is
+# advisory-clean, permissively licensed, and comes from crates.io.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+# Fail on any crate with a known security advisory or a yanked release.
+yanked = "deny"
+# `ignore` should stay empty; add an entry (with a comment and a date) only
+# for an advisory that genuinely doesn't apply, never to silence a real one.
+ignore = []
+
+[licenses]
+version = 2
+# Permissive / public-domain licenses only. No (strong) copyleft.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MPL-2.0",           # weak, file-level copyleft — fine to depend on
+    "Unicode-3.0",       # Unicode license, via the ICU chain under `url`
+    "Zlib",
+    "OFL-1.1",           # bundled default fonts
+    "Ubuntu-font-1.0",   # bundled default font
+]
+confidence-threshold = 0.9
+
+[bans]
+# The tree is large (eframe/wgpu/winit); duplicate transitive versions are
+# expected and not a security concern, so they don't fail the check.
+multiple-versions = "allow"
+# No `foo = "*"` deps from crates.io — but the vendored `egui_term` path dep
+# is version-less by nature and fine.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+# Everything must come from the public crates.io registry — no git deps, no
+# private registries. (The `egui_term` fork is vendored in-tree as a `path`
+# dependency, reviewable as a plain diff.)
+unknown-registry = "deny"
+unknown-git = "deny"

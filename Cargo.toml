@@ -11,6 +11,8 @@ description = "A minimal, Chrome-flavored terminal emulator"
 license = "MIT"
 repository = "https://github.com/MartinThoma/pomptty"
 readme = "README.md"
+# An application, distributed as a binary — not published to crates.io.
+publish = false
 
 [dependencies]
 egui = "0.35"

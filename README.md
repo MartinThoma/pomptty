@@ -23,6 +23,7 @@ the PTY. Linux and Windows are supported; macOS is on the
 - [Shell integration](#shell-integration)
 - [Configuration](#configuration)
 - [Development](#development)
+- [Security](#security)
 - [Roadmap](#roadmap)
 - [License](#license)
 
@@ -231,6 +232,7 @@ config.
 | `cursor` | `shape` (default `"block"`; also `"beam"`, `"underline"`) and `blink` (default `true`) — the cursor's appearance before an app sets its own via DECSCUSR (`vim`'s insert-mode beam, for instance, still overrides this at runtime). |
 | `paste` | `confirm_multiline` (default `true`) — ask before pasting newline-containing text into a shell that hasn't enabled bracketed paste, where each line would run on arrival. |
 | `notifications` | `long_command_secs` (default `300`) — post a desktop notification when a command that ran at least this long finishes while pomptty is unfocused, minimised, or on another tab; `0` disables it. Needs the [shell integration](#shell-integration). |
+| `security` | `superuser_warning` (default `true`) — red terminal outline + tab dot while the shell (or `sudo -s` / `su` / a long `sudo …` under it) is running as `root`. Linux only. |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the
 fallback chain, so powerline prompts and devicon themes render their icons rather
@@ -293,6 +295,17 @@ Source layout:
 
 Contributions are welcome. Please run `make fmt lint test` before opening a pull
 request.
+
+## Security
+
+pomptty is **local-only** — no network connections, no telemetry, no
+auto-update — and runs entirely as your user with no elevated privileges. Its
+own code is safe Rust bar two documented `env::set_var` blocks
+(`#![deny(unsafe_code)]` enforces it), and every dependency is checked for
+advisories, licenses and provenance by `cargo deny` on each push.
+
+[SECURITY.md](SECURITY.md) spells out exactly what it does, which files it
+touches, and how to verify all of it, plus how to report a vulnerability.
 
 ## Roadmap
 
