@@ -218,6 +218,14 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
       (`PowerPreference::LowPower` in `src/main.rs`, `WGPU_POWER_PREF` still
       overrides) and logs the chosen GPU at startup — this alone avoids the
       observed 2 GB-discrete-GPU OOM by not preferring that class of card.
+- [x] security & safety: `SECURITY.md` (what pomptty does/doesn't do, files
+      touched, how to verify, how to report), a `cargo deny` supply-chain job
+      in CI (advisories/licenses/sources) with a committed `deny.toml`,
+      `#![deny(unsafe_code)]` on pomptty's own crate, and a red terminal
+      outline + tab dot while the shell (or `sudo -s` / `su` / a long
+      `sudo …` under it) runs as `root` — `security.superuser_warning`
+      config, Linux only. Still open: macOS/Windows privilege detection,
+      dangerous-command heuristics
 - [ ] non-fatal wgpu error handling: making an actual mid-run wgpu error (the
       hard `panic!()` in `egui-wgpu`'s renderer when a buffer allocation
       fails) recoverable instead of crashing — needs an `egui-wgpu` fork,
