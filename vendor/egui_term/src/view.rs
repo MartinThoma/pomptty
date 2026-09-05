@@ -451,27 +451,6 @@ fn paint_cursor(
     }
 }
 
-/// The bytes to send to the PTY for a clipboard paste, following the same
-/// rules Alacritty uses.
-///
-/// In bracketed-paste mode the text is wrapped in `\e[200~ … \e[201~` and any
-/// embedded `ESC` / `ST` is stripped, so the pasted data can't break out of
-/// the brackets and drive the terminal. Otherwise newlines are normalised to
-/// `\r` (a bare paste is indistinguishable from typing, and that's what a
-/// terminal expects for Enter).
-fn paste_payload(text: &str, bracketed: bool) -> Vec<u8> {
-    if bracketed {
-        let filtered = text.replace(['\x1b', '\u{9c}'], "");
-        let mut out = Vec::with_capacity(filtered.len() + 12);
-        out.extend_from_slice(b"\x1b[200~");
-        out.extend_from_slice(filtered.as_bytes());
-        out.extend_from_slice(b"\x1b[201~");
-        out
-    } else {
-        text.replace('\r', "").replace('\n', "\r").into_bytes()
-    }
-}
-
 fn process_keyboard_event(
     event: egui::Event,
     backend: &TerminalBackend,
@@ -480,23 +459,17 @@ fn process_keyboard_event(
 ) -> InputAction {
     match event {
         egui::Event::Text(text) => process_text_event(&text, modifiers, backend, bindings_layout),
-        egui::Event::Paste(text) => {
-            let bracketed = backend
-                .last_content()
-                .terminal_mode
-                .contains(TermMode::BRACKETED_PASTE);
-            InputAction::BackendCall(
-                #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-                if modifiers.contains(Modifiers::COMMAND | Modifiers::SHIFT) {
-                    BackendCommand::Write(paste_payload(&text, bracketed))
-                } else {
-                    // Hotfix - Send ^V when there's not selection on view.
-                    BackendCommand::Write([0x16].to_vec())
-                },
-                #[cfg(any(target_os = "ios", target_os = "macos"))]
-                BackendCommand::Write(paste_payload(&text, bracketed)),
-            )
-        }
+        egui::Event::Paste(text) => InputAction::BackendCall(
+            #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+            if modifiers.contains(Modifiers::COMMAND | Modifiers::SHIFT) {
+                BackendCommand::Paste(text)
+            } else {
+                // Hotfix - Send ^V when there's not selection on view.
+                BackendCommand::Write([0x16].to_vec())
+            },
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
+            BackendCommand::Paste(text),
+        ),
         egui::Event::Copy => {
             #[cfg(not(any(target_os = "ios", target_os = "macos")))]
             if modifiers.contains(Modifiers::COMMAND | Modifiers::SHIFT) {
@@ -745,22 +718,4 @@ fn process_mouse_move(
     }
 
     actions
-}
-
-#[cfg(test)]
-mod tests {
-    use super::paste_payload;
-
-    #[test]
-    fn plain_paste_normalises_newlines() {
-        assert_eq!(paste_payload("a\r\nb\nc", false), b"a\rb\rc");
-    }
-
-    #[test]
-    fn bracketed_paste_wraps_and_strips_escapes() {
-        assert_eq!(
-            paste_payload("a\x1b[201~b", true),
-            b"\x1b[200~a[201~b\x1b[201~"
-        );
-    }
 }

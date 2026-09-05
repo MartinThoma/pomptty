@@ -4,6 +4,7 @@ mod app;
 mod config;
 mod fonts;
 mod history;
+mod primary_selection;
 mod session;
 mod terminal;
 mod ui;

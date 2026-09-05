@@ -252,8 +252,12 @@ bounces off it.
       configured theme. Still open: the *query* form (`OSC 10;?` →
       `Event::ColorRequest`), which needs the theme's defaults reachable from
       the backend thread to answer for un-overridden slots
-- [ ] **primary selection** (X11): copy-on-select and middle-click paste of
-      `PRIMARY`, separate from `CLIPBOARD` — Linux muscle memory
+- [x] **primary selection** (X11/Wayland): the mouse selection is mirrored
+      onto `PRIMARY`, middle-click pastes it (via bracketed paste, so
+      multi-line is safe). `arboard` directly, since egui only exposes
+      `CLIPBOARD`; `src/primary_selection.rs`, a no-op stub off Linux.
+      Middle-click still isn't *forwarded* to apps in mouse mode — separate
+      gap
 - [ ] **rectangular / block selection** (`Alt`+drag). The backend already
       has `SelectionType::Block`; the fork's `view.rs` only wires
       double/triple-click → word/line

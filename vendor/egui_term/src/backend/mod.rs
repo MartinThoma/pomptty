@@ -31,12 +31,34 @@ pub type SelectionType = AlacrittySelectionType;
 #[derive(Debug, Clone)]
 pub enum BackendCommand {
     Write(Vec<u8>),
+    /// Paste `String` as clipboard content: wrapped in `\e[200~…\e[201~` when
+    /// the app enabled bracketed paste, newlines normalised otherwise. Use
+    /// this rather than `Write` for anything that came from a clipboard.
+    Paste(String),
     Scroll(i32),
     Resize(Size, Size),
     SelectStart(SelectionType, f32, f32),
     SelectUpdate(f32, f32),
     ProcessLink(LinkAction, Point),
     MouseReport(MouseButton, Modifiers, Point, bool),
+}
+
+/// The bytes to send to the PTY for a clipboard paste, following the same
+/// rules Alacritty uses. In bracketed-paste mode the text is wrapped in
+/// `\e[200~ … \e[201~` and any embedded `ESC` / `ST` is stripped, so the
+/// pasted data can't break out of the brackets and drive the terminal.
+/// Otherwise newlines are normalised to `\r`.
+fn paste_payload(text: &str, bracketed: bool) -> Vec<u8> {
+    if bracketed {
+        let filtered = text.replace(['\x1b', '\u{9c}'], "");
+        let mut out = Vec::with_capacity(filtered.len() + 12);
+        out.extend_from_slice(b"\x1b[200~");
+        out.extend_from_slice(filtered.as_bytes());
+        out.extend_from_slice(b"\x1b[201~");
+        out
+    } else {
+        text.replace('\r', "").replace('\n', "\r").into_bytes()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -228,6 +250,11 @@ impl TerminalBackend {
         match cmd {
             BackendCommand::Write(input) => {
                 self.write(input);
+                term.scroll_display(Scroll::Bottom);
+            }
+            BackendCommand::Paste(text) => {
+                let bracketed = term.mode().contains(TermMode::BRACKETED_PASTE);
+                self.write(paste_payload(&text, bracketed));
                 term.scroll_display(Scroll::Bottom);
             }
             BackendCommand::Scroll(delta) => {
@@ -595,5 +622,23 @@ pub struct EventProxy(mpsc::Sender<Event>);
 impl EventListener for EventProxy {
     fn send_event(&self, event: Event) {
         let _ = self.0.send(event.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paste_payload;
+
+    #[test]
+    fn plain_paste_normalises_newlines() {
+        assert_eq!(paste_payload("a\r\nb\nc", false), b"a\rb\rc");
+    }
+
+    #[test]
+    fn bracketed_paste_wraps_and_strips_escapes() {
+        assert_eq!(
+            paste_payload("a\x1b[201~b", true),
+            b"\x1b[200~a[201~b\x1b[201~"
+        );
     }
 }

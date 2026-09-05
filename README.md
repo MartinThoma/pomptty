@@ -60,8 +60,9 @@ the PTY. Linux and Windows are supported; macOS is on the
 - Mouse selection with copy/paste
   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> /
   <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>); double/triple-click select a
-  word/line; bracketed paste so a multi-line paste doesn't auto-run; OSC 52 so
-  `tmux` / `vim` can copy to the clipboard over SSH.
+  word/line; select-to-copy and middle-click paste the X11 primary selection;
+  bracketed paste so a multi-line paste doesn't auto-run; OSC 52 so `tmux` /
+  `vim` can copy to the clipboard over SSH.
 - Custom font from a file path, with real bold/italic faces when installed.
 - A themed, shaped (block/beam/underline), gliding, blinking cursor — apps that
   set their own style (`vim`'s insert-mode beam) override the configured

@@ -5,13 +5,16 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use egui_term::{FontSettings, PtyEvent, TerminalFont, TerminalTheme, TerminalView};
+use egui_term::{
+    BackendCommand, FontSettings, PtyEvent, TerminalFont, TerminalMode, TerminalTheme, TerminalView,
+};
 use notify::{RecursiveMode, Watcher};
 
 use crate::config::Config;
 use crate::config::keybindings::{Action, Chord};
 use crate::fonts::FontVariants;
 use crate::history::log_store::LogStore;
+use crate::primary_selection::PrimarySelection;
 use crate::session::{Session, restore_active};
 use crate::terminal::{TabColor, TabId, TerminalTab};
 use crate::ui::chrome::{ChromeAction, TabStrip, TabView};
@@ -125,6 +128,9 @@ pub struct PompttyApp {
     /// What was last written (or loaded), to skip a no-op save.
     session_last_written: Option<Session>,
     toast: Option<Toast>,
+    /// The X11/Wayland `PRIMARY` selection — mirrored from the mouse
+    /// selection, pasted on middle-click. A no-op off Linux.
+    primary: PrimarySelection,
     /// When the terminal last rang the bell — drives a brief screen flash.
     bell_at: Option<Instant>,
     /// The window title we last pushed, to avoid redundant viewport commands.
@@ -236,6 +242,7 @@ impl PompttyApp {
             session_last_saved: Instant::now(),
             session_last_written: session,
             toast: None,
+            primary: PrimarySelection::new(),
             bell_at: None,
             title_shown: String::new(),
         };
@@ -1137,7 +1144,26 @@ impl eframe::App for PompttyApp {
                 .set_theme(self.theme.clone())
                 .set_font(TerminalFont::new(font_settings))
                 .set_size(ui.available_size());
-            ui.add(view);
+            let response = ui.add(view);
+
+            // X11 "select to copy": mirror the mouse selection onto PRIMARY.
+            if tab.backend.last_content().selectable_range.is_some() {
+                self.primary.set(&tab.backend.selectable_content());
+            }
+            // Middle-click pastes PRIMARY — unless an app is reading the mouse
+            // itself, where the click belongs to it (pomptty doesn't forward
+            // middle clicks to apps yet, so it's just swallowed there).
+            let mouse_mode = tab
+                .backend
+                .last_content()
+                .terminal_mode
+                .contains(TerminalMode::MOUSE_MODE);
+            if response.middle_clicked()
+                && !mouse_mode
+                && let Some(text) = self.primary.get()
+            {
+                tab.backend.process_command(BackendCommand::Paste(text));
+            }
         });
 
         if self.custom_chrome {
