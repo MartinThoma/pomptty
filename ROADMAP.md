@@ -230,18 +230,28 @@ WezTerm / iTerm2 / Windows Terminal users reach for and would currently miss.
 None of these are the reason to pick pomptty; all of them are reasons someone
 bounces off it.
 
-- [ ] **bracketed paste** (`\e[?2004h`): wrap pasted text in `\e[200~…\e[201~`
-      when the app asks for it. Today pomptty writes paste raw to the PTY —
-      multi-line paste auto-runs in a shell, and paste into `vim` mangles
-      indentation. Add a confirm prompt for multi-line / newline-containing
-      pastes (security)
-- [ ] **OSC 52 clipboard**: let apps set the system clipboard (tmux, neovim,
-      `vim` `+clipboard`) — the main way to copy *out of* an SSH session.
-      Reading the clipboard back is gated behind a config opt-in (security)
-- [ ] **OSC 4 / 10 / 11 / 12 / 104 / 110-112 dynamic colors**: apps setting
-      or querying the palette / fg / bg / cursor at runtime (neovim
-      colorschemes, `dircolors`, `$COLORFGBG`). `alacritty_terminal` parses
-      these; the fork drops them
+- [x] **bracketed paste**: paste is wrapped in `\e[200~…\e[201~` when the app
+      set `\e[?2004h` (embedded `ESC`/`ST` stripped so it can't break out);
+      otherwise newlines are normalised to `\r`, matching Alacritty. Multi-line
+      paste no longer auto-runs in a shell. (`paste_payload` in the
+      `egui_term` fork's `view.rs`.)
+- [ ] paste safety: a confirm prompt for multi-line / newline-containing
+      pastes even when bracketed paste is off (the shell's own bracketed-paste
+      default already covers the common case)
+- [~] **OSC 52 clipboard**: apps setting the system clipboard (tmux, neovim,
+      `vim` `+clipboard`) now works — the main way to copy *out of* an SSH
+      session (`PtyEvent::ClipboardStore` → `ctx.copy_text` in `src/app.rs`;
+      `alacritty_terminal`'s default `Osc52::OnlyCopy` already gates it to the
+      copy direction). Still open: routing `p`/`s` requests to the X11 primary
+      selection (needs the primary-selection work below), and a config opt-in
+      for the *read* direction
+- [~] **OSC 4 / 10 / 11 / 12 / 104 / 110-112 dynamic colors**: apps *setting*
+      the palette / fg / bg / cursor at runtime now works (neovim
+      colorschemes, `dircolors`) — `RenderableContent::colors` +
+      `resolve_color` in the `egui_term` fork; resets fall back to the
+      configured theme. Still open: the *query* form (`OSC 10;?` →
+      `Event::ColorRequest`), which needs the theme's defaults reachable from
+      the backend thread to answer for un-overridden slots
 - [ ] **primary selection** (X11): copy-on-select and middle-click paste of
       `PRIMARY`, separate from `CLIPBOARD` — Linux muscle memory
 - [ ] **rectangular / block selection** (`Alt`+drag). The backend already

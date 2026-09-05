@@ -2,9 +2,11 @@ use std::time::Duration;
 
 use alacritty_terminal::index::Point as TerminalGridPoint;
 use alacritty_terminal::term::cell;
+use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
 use egui::epaint::RectShape;
+use egui::Color32;
 use egui::Modifiers;
 use egui::MouseWheelUnit;
 use egui::Shape;
@@ -201,7 +203,8 @@ impl<'a> TerminalView<'a> {
         let layout_max = layout.rect.max;
         let cell_height = content.terminal_size.cell_height as f32;
         let cell_width = content.terminal_size.cell_width as f32;
-        let global_bg = self.theme.get_color(Color::Named(NamedColor::Background));
+        let colors = &content.colors;
+        let global_bg = resolve_color(&self.theme, colors, Color::Named(NamedColor::Background));
 
         let mut shapes = vec![Shape::Rect(RectShape::filled(
             Rect::from_min_max(layout_min, layout_max),
@@ -257,8 +260,8 @@ impl<'a> TerminalView<'a> {
             let line_num = indexed.point.line.0 + content.grid.display_offset() as i32;
             let y = layout_min.y + (cell_height * line_num as f32);
 
-            let mut fg = self.theme.get_color(indexed.fg);
-            let mut bg = self.theme.get_color(indexed.bg);
+            let mut fg = resolve_color(&self.theme, colors, indexed.fg);
+            let mut bg = resolve_color(&self.theme, colors, indexed.bg);
             let cell_width = if is_wide_char {
                 cell_width * 2.0
             } else {
@@ -323,8 +326,11 @@ impl<'a> TerminalView<'a> {
         }
 
         if let Some((target, cell_w)) = cursor_target {
+            let cursor_color = resolve_color(&self.theme, colors, Color::Named(NamedColor::Cursor));
+            let bg_color = resolve_color(&self.theme, colors, Color::Named(NamedColor::Background));
             paint_cursor(
-                &self.theme,
+                cursor_color,
+                bg_color,
                 self.widget_id,
                 self.has_focus,
                 layout,
@@ -343,14 +349,30 @@ impl<'a> TerminalView<'a> {
     }
 }
 
+/// Resolve an ANSI color to pixels: a live OSC 4/10/11/12 override if the app
+/// set one, otherwise the configured theme.
+fn resolve_color(theme: &TerminalTheme, overrides: &Colors, c: Color) -> Color32 {
+    let over = match c {
+        Color::Named(nc) => overrides[nc],
+        Color::Indexed(i) => overrides[i as usize],
+        Color::Spec(_) => None,
+    };
+    match over {
+        Some(rgb) => Color32::from_rgb(rgb.r, rgb.g, rgb.b),
+        None => theme.get_color(c),
+    }
+}
+
 /// Draw the cursor at (an eased approach to) `target`, honouring its real
 /// shape/blink from `RenderableContent::cursor_style`. Unfocused shows a
 /// steady hollow outline instead of a blinking fill. A solid `Block` redraws
-/// the character underneath in the background color on top, so it stays
-/// legible regardless of the configured cursor color.
+/// the character underneath in `bg_color` on top, so it stays legible
+/// regardless of the cursor color. `color`/`bg_color` are already resolved
+/// (theme + any OSC 12 / OSC 11 override).
 #[allow(clippy::too_many_arguments)]
 fn paint_cursor(
-    theme: &TerminalTheme,
+    color: Color32,
+    bg_color: Color32,
     widget_id: Id,
     has_focus: bool,
     layout: &Response,
@@ -372,7 +394,6 @@ fn paint_cursor(
     let y = ctx.animate_value_with_time(widget_id.with("cursor_y"), target.y, 0.08);
     let pos = Pos2::new(x, y);
 
-    let color = theme.get_color(Color::Named(NamedColor::Cursor));
     let outline_only = shape == CursorShape::HollowBlock || !has_focus;
 
     let blink_on = if has_focus && blinking {
@@ -419,7 +440,7 @@ fn paint_cursor(
         )));
         if shape == CursorShape::Block {
             if let Some((c, font_id, glyph_pos)) = glyph {
-                let bg = theme.get_color(Color::Named(NamedColor::Background));
+                let bg = bg_color;
                 shapes.push(
                     painter.fonts_mut(|f| {
                         Shape::text(f, glyph_pos, Align2::CENTER_TOP, c, font_id, bg)
@@ -427,6 +448,27 @@ fn paint_cursor(
                 );
             }
         }
+    }
+}
+
+/// The bytes to send to the PTY for a clipboard paste, following the same
+/// rules Alacritty uses.
+///
+/// In bracketed-paste mode the text is wrapped in `\e[200~ … \e[201~` and any
+/// embedded `ESC` / `ST` is stripped, so the pasted data can't break out of
+/// the brackets and drive the terminal. Otherwise newlines are normalised to
+/// `\r` (a bare paste is indistinguishable from typing, and that's what a
+/// terminal expects for Enter).
+fn paste_payload(text: &str, bracketed: bool) -> Vec<u8> {
+    if bracketed {
+        let filtered = text.replace(['\x1b', '\u{9c}'], "");
+        let mut out = Vec::with_capacity(filtered.len() + 12);
+        out.extend_from_slice(b"\x1b[200~");
+        out.extend_from_slice(filtered.as_bytes());
+        out.extend_from_slice(b"\x1b[201~");
+        out
+    } else {
+        text.replace('\r', "").replace('\n', "\r").into_bytes()
     }
 }
 
@@ -438,19 +480,23 @@ fn process_keyboard_event(
 ) -> InputAction {
     match event {
         egui::Event::Text(text) => process_text_event(&text, modifiers, backend, bindings_layout),
-        egui::Event::Paste(text) => InputAction::BackendCall(
-            #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-            if modifiers.contains(Modifiers::COMMAND | Modifiers::SHIFT) {
-                BackendCommand::Write(text.as_bytes().to_vec())
-            } else {
-                // Hotfix - Send ^V when there's not selection on view.
-                BackendCommand::Write([0x16].to_vec())
-            },
-            #[cfg(any(target_os = "ios", target_os = "macos"))]
-            {
-                BackendCommand::Write(text.as_bytes().to_vec())
-            },
-        ),
+        egui::Event::Paste(text) => {
+            let bracketed = backend
+                .last_content()
+                .terminal_mode
+                .contains(TermMode::BRACKETED_PASTE);
+            InputAction::BackendCall(
+                #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+                if modifiers.contains(Modifiers::COMMAND | Modifiers::SHIFT) {
+                    BackendCommand::Write(paste_payload(&text, bracketed))
+                } else {
+                    // Hotfix - Send ^V when there's not selection on view.
+                    BackendCommand::Write([0x16].to_vec())
+                },
+                #[cfg(any(target_os = "ios", target_os = "macos"))]
+                BackendCommand::Write(paste_payload(&text, bracketed)),
+            )
+        }
         egui::Event::Copy => {
             #[cfg(not(any(target_os = "ios", target_os = "macos")))]
             if modifiers.contains(Modifiers::COMMAND | Modifiers::SHIFT) {
@@ -551,6 +597,7 @@ fn process_mouse_wheel(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_button_click(
     state: &mut TerminalViewState,
     layout: &Response,
@@ -698,4 +745,22 @@ fn process_mouse_move(
     }
 
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paste_payload;
+
+    #[test]
+    fn plain_paste_normalises_newlines() {
+        assert_eq!(paste_payload("a\r\nb\nc", false), b"a\rb\rc");
+    }
+
+    #[test]
+    fn bracketed_paste_wraps_and_strips_escapes() {
+        assert_eq!(
+            paste_payload("a\x1b[201~b", true),
+            b"\x1b[200~a[201~b\x1b[201~"
+        );
+    }
 }

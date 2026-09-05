@@ -49,6 +49,8 @@ the PTY. Linux and Windows are supported; macOS is on the
   is shown.
 - **Theming** — four builtins (Solarized Dark/Light, plain dark/light) or a full
   inline palette. The surrounding UI is tinted to match the terminal background.
+  Apps can recolour the palette / fg / bg / cursor at runtime (OSC 4/10/11/12),
+  so neovim colorschemes take effect.
 - **Layered keybindings** — your bindings sit on top of the defaults, so new
   default shortcuts appear automatically and any default can be switched off.
 - **Fuzzy history search** (<kbd>Ctrl</kbd>+<kbd>R</kbd>) — an overlay ranked by
@@ -57,7 +59,9 @@ the PTY. Linux and Windows are supported; macOS is on the
 - Font zoom, scrollback keys, and clear-screen.
 - Mouse selection with copy/paste
   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> /
-  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>).
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>); double/triple-click select a
+  word/line; bracketed paste so a multi-line paste doesn't auto-run; OSC 52 so
+  `tmux` / `vim` can copy to the clipboard over SSH.
 - Custom font from a file path, with real bold/italic faces when installed.
 - A themed, shaped (block/beam/underline), gliding, blinking cursor — apps that
   set their own style (`vim`'s insert-mode beam) override the configured

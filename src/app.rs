@@ -725,6 +725,12 @@ impl PompttyApp {
                         ));
                     }
                 }
+                // OSC 52: an app (tmux, vim `+clipboard`, neovim) asked to set
+                // the system clipboard — the usual way to copy out of an SSH
+                // session. `alacritty_terminal` only emits this for the "copy"
+                // direction by default; reading the clipboard back stays off.
+                // Primary-vs-clipboard routing is future work (see M9).
+                PtyEvent::ClipboardStore(_, text) => ctx.copy_text(text),
                 _ => {}
             }
         }

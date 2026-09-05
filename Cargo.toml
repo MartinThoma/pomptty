@@ -1,3 +1,8 @@
+# The vendored `egui_term` fork is a workspace member so its tests and lints
+# run alongside pomptty's (in CI too), not just when built as a dependency.
+[workspace]
+members = [".", "vendor/egui_term"]
+
 [package]
 name = "pomptty"
 version = "0.1.0"

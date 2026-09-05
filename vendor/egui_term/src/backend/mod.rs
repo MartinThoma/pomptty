@@ -11,7 +11,7 @@ use alacritty_terminal::selection::{
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 use alacritty_terminal::term::{
-    self, cell::Cell, test::TermSize, viewport_to_point, Term, TermMode,
+    self, cell::Cell, color::Colors, test::TermSize, viewport_to_point, Term, TermMode,
 };
 use alacritty_terminal::vte::ansi::CursorStyle;
 use alacritty_terminal::{tty, Grid};
@@ -184,6 +184,7 @@ impl TerminalBackend {
             terminal_size,
             cursor: term.grid_mut().cursor_cell().clone(),
             cursor_style: term.cursor_style(),
+            colors: *term.colors(),
             hovered_hyperlink: None,
         };
         let term = Arc::new(FairMutex::new(term));
@@ -291,6 +292,7 @@ impl TerminalBackend {
         self.last_content.selectable_range = selectable_range;
         self.last_content.cursor = cursor.clone();
         self.last_content.cursor_style = terminal.cursor_style();
+        self.last_content.colors = *terminal.colors();
         self.last_content.terminal_mode = *terminal.mode();
         self.last_content.terminal_size = self.size;
         self.last_content()
@@ -558,6 +560,10 @@ pub struct RenderableContent {
     /// The cursor's real shape/blink, from DECSCUSR (or `BackendSettings`'
     /// default when nothing has set one yet).
     pub cursor_style: CursorStyle,
+    /// Live palette / fg / bg / cursor overrides set by the app via
+    /// OSC 4/10/11/12 (and cleared by OSC 104/110/111/112). A `None` slot
+    /// means "use the configured theme".
+    pub colors: Colors,
     pub terminal_mode: TermMode,
     pub terminal_size: TerminalSize,
 }
@@ -570,6 +576,7 @@ impl Default for RenderableContent {
             selectable_range: None,
             cursor: Cell::default(),
             cursor_style: CursorStyle::default(),
+            colors: Colors::default(),
             terminal_mode: TermMode::empty(),
             terminal_size: TerminalSize::default(),
         }
