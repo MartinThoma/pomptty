@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets a build be triggered by hand from the Actions tab (or `gh workflow
+  # run ci.yml`), on any branch, without needing a push or PR — e.g. to grab
+  # a one-off downloadable macOS/Windows binary from the artifact it uploads.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -60,3 +64,74 @@ jobs:
 
       - name: Build (release)
         run: cargo build --release --locked
+
+  test-macos:
+    name: "macOS: clippy + test + build"
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --all-targets --locked
+
+      - name: Build (release)
+        run: cargo build --release --locked
+
+      # Not a signed/notarized .app bundle — a raw binary, downloadable from
+      # this run's summary page for a quick manual smoke test.
+      - name: Upload pomptty binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pomptty-macos
+          path: target/release/pomptty
+          if-no-files-found: error
+
+  package-linux:
+    name: "Linux: .deb + .rpm"
+    runs-on: ubuntu-latest
+    needs: test-linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deb and cargo-generate-rpm
+        run: cargo install cargo-deb cargo-generate-rpm --locked
+
+      - name: Build .deb
+        run: cargo deb
+
+      - name: Build .rpm
+        run: |
+          cargo build --release --locked
+          strip -s target/release/pomptty
+          cargo generate-rpm
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: pomptty-deb
+          path: target/debian/*.deb
+          if-no-files-found: error
+
+      - name: Upload .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: pomptty-rpm
+          path: target/generate-rpm/*.rpm
+          if-no-files-found: error

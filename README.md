@@ -77,6 +77,12 @@ the PTY. Linux and Windows are supported; macOS is on the
   desktop already has them. On Windows: DirectX or Vulkan, already present on
   any current install — no extra packages needed either way.
 
+pomptty asks for a **low-power** GPU (usually the integrated one) — a terminal
+doesn't need a discrete card, and small dedicated GPUs can run out of VRAM.
+The chosen adapter is printed at startup (`GPU: …`). To override: set
+`WGPU_POWER_PREF=high` for the discrete GPU, or `WGPU_BACKEND=vulkan|gl|dx12`
+to pin a backend.
+
 ### Build and run
 
 ```sh
@@ -102,6 +108,8 @@ The `Makefile` prepends `~/.cargo/bin` to `PATH`, which is handy when the system
 | `make lint` | `rustfmt --check` + `clippy -D warnings` |
 | `make fmt` | format the source |
 | `make windows` | cross-compile a release `pomptty.exe` from Linux — needs the `mingw-w64` linker (`sudo apt install mingw-w64` on Debian/Ubuntu) installed once; the `x86_64-pc-windows-gnu` rustup target is added automatically |
+| `make deb` | build a `.deb` package (`target/debian/*.deb`); installs `cargo-deb` if missing — no sudo needed |
+| `make rpm` | build an `.rpm` package (`target/generate-rpm/*.rpm`); installs `cargo-generate-rpm` if missing — no sudo needed |
 
 ## Usage
 

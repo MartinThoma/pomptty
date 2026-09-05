@@ -74,8 +74,18 @@ fn run() -> Result<()> {
             .with_window_type(egui::X11WindowType::Normal)
             .with_resizable(true);
     }
+    let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut wgpu_options.wgpu_setup {
+        // A terminal doesn't need a discrete GPU; an integrated one shares
+        // system RAM and avoids the VRAM-pressure panics seen on small
+        // dedicated GPUs. `WGPU_POWER_PREF=high` still overrides this.
+        setup.power_preference =
+            wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::LowPower);
+    }
+
     let native_options = eframe::NativeOptions {
         viewport,
+        wgpu_options,
         ..Default::default()
     };
 

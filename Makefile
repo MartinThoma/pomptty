@@ -3,7 +3,7 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 
 CARGO ?= cargo
 
-.PHONY: build run release test lint fmt clean windows
+.PHONY: build run release test lint fmt clean windows deb rpm
 
 ## Compile a debug build
 build:
@@ -46,3 +46,18 @@ windows:
 	rustup target add x86_64-pc-windows-gnu
 	$(CARGO) build --release --target x86_64-pc-windows-gnu
 	@echo "Built target/x86_64-pc-windows-gnu/release/pomptty.exe"
+
+## Build a .deb package. Installs cargo-deb if missing (no sudo needed).
+deb:
+	command -v cargo-deb >/dev/null || $(CARGO) install cargo-deb --locked
+	$(CARGO) deb
+	@echo "Built target/debian/*.deb"
+
+## Build an .rpm package. Installs cargo-generate-rpm if missing (no sudo
+## needed); strips debug symbols first, per its own recommendation.
+rpm:
+	command -v cargo-generate-rpm >/dev/null || $(CARGO) install cargo-generate-rpm --locked
+	$(CARGO) build --release --locked
+	strip -s target/release/pomptty
+	$(CARGO) generate-rpm
+	@echo "Built target/generate-rpm/*.rpm"

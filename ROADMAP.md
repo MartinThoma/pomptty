@@ -15,7 +15,9 @@ pomptty's bet is elsewhere:
 Three pillars carry the identity: **M5 command blocks** (the flagship — Warp's
 best idea, without the account / telemetry / AI / weight), **M6 browser-shaped
 workflow** (the omnibox and everything around it), and **M4 stunning-by-default**
-(the reason someone tries it at all). Everything else is table stakes or later.
+(the reason someone tries it at all). Everything else is table stakes (**M9**,
+parity with mainstream terminals — the "don't lose me on day one" set) or
+later.
 
 Deliberate non-goals: no account, no telemetry, no AI-by-default (at most a
 much-later opt-in, bring-your-own-key).
@@ -125,6 +127,17 @@ exposure; forked into [`vendor/egui_term/`](vendor/egui_term)):
       OpenType GSUB shaping (`rustybuzz`), which egui/epaint's text system
       doesn't provide at all (cmap-only glyph lookup) — a full custom
       text-rendering subsystem, materially bigger than the rest of this slice
+- [ ] **underline / strikethrough** — the fork renders *no* underline today
+      (only hyperlink hover). Add `\e[4m`, plus styled underlines
+      (`\e[4:2m` double, `:3` undercurl, `:4` dotted, `:5` dashed) and
+      underline color (`\e[58…m`) — neovim/helix LSP squiggles depend on
+      this — and `\e[9m` strikethrough
+- [ ] **box-drawing / block / Powerline glyphs drawn by pomptty**, not the
+      font — pixel-perfect `─│┌┘`, shade blocks, and powerline separators at
+      any size/font, the way kitty/WezTerm/Alacritty/Ghostty do. Fits
+      "stunning by default"
+- [ ] **"bold is bright"** option (map bold text onto the bright palette, as
+      many terminals do); confirm `DIM` / `DIM_BOLD` render right
 
 **Slice 5 — depth**: optional background blur / translucency; optional background
 image with dimming + vignette; faint top-edge pane highlight.
@@ -174,19 +187,83 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 ## M8 — platform & robustness
 
 - [ ] macOS support (window decorations, `/proc` cwd alternative, `state_dir`),
-      distributed via a Homebrew formula/cask
+      distributed via a Homebrew formula/cask. `macos-latest` CI job now
+      builds + tests on real Apple hardware (can't be cross-compiled from
+      Linux — the SDK is proprietary, unlike `mingw-w64` for Windows), but
+      nothing macOS-specific has been tuned or run interactively yet
 - [x] Windows support: builds and runs via `alacritty_terminal`'s existing
       ConPTY backend, defaults to `powershell.exe` when no shell is
       configured, ships as a plain `.exe` (no installer). `windows-latest` CI
       job guards against regressions. cwd/child-process detection and the
       `Ctrl+R` history hook remain Linux-only for now — see
       [Known issues](#known-issues).
-- [ ] `.deb` package: `cargo-deb` metadata in `Cargo.toml` + a `.desktop` file +
-      an icon (none exists yet) + a release CI job; no `-dev` packages needed
-      at build time (windowing/GPU libs are `dlopen`'d at runtime)
-- [ ] `.rpm` package: same shape via `cargo-generate-rpm`, mostly duplicate
-      effort once the `.deb` metadata (desktop file, icon) exists
-- [ ] non-fatal wgpu error handling + GPU / backend fallback (OOM panic on a 2 GB GPU)
+- [x] `.deb` package: `cargo-deb` metadata in `Cargo.toml`, a `.desktop` file
+      + placeholder icon under `packaging/` ([Known issues](#known-issues)),
+      `make deb` for a local build, CI job uploads it as a workflow artifact
+      on every push/PR/manual run. Lints clean under `lintian` (bar two minor
+      style warnings — synopsis starts with "A", no man page yet)
+- [x] `.rpm` package: same `packaging/` assets via `cargo-generate-rpm`
+      (pure Rust, no `rpmbuild` dependency), `make rpm` locally, same CI
+      artifact treatment. Not yet content-verified as deeply as the `.deb`
+      (no `rpm`/`rpm2cpio` available to inspect it here — `file` confirms a
+      valid RPM, `cargo generate-rpm` built it from the same asset paths
+      already verified via the `.deb`)
+- [ ] real GitHub Releases with `.deb`/`.rpm`/`.exe` attached on a tag push —
+      needs a version-tagging/changelog policy this repo doesn't have yet;
+      `workflow_dispatch` artifacts cover "get a build right now" meanwhile
+- [ ] a proper man page (`no-manual-page`, flagged by `lintian`)
+- [ ] a considered app icon/logo — `packaging/pomptty.svg` is a functional
+      placeholder (Solarized-Dark terminal-window glyph), not real branding
+- [x] GPU adapter choice: pomptty now requests a low-power adapter by default
+      (`PowerPreference::LowPower` in `src/main.rs`, `WGPU_POWER_PREF` still
+      overrides) and logs the chosen GPU at startup — this alone avoids the
+      observed 2 GB-discrete-GPU OOM by not preferring that class of card.
+- [ ] non-fatal wgpu error handling: making an actual mid-run wgpu error (the
+      hard `panic!()` in `egui-wgpu`'s renderer when a buffer allocation
+      fails) recoverable instead of crashing — needs an `egui-wgpu` fork,
+      deliberately deferred.
+
+## M9 — parity with mainstream terminals
+
+The "don't lose me on day one" set — table stakes that Alacritty / kitty /
+WezTerm / iTerm2 / Windows Terminal users reach for and would currently miss.
+None of these are the reason to pick pomptty; all of them are reasons someone
+bounces off it.
+
+- [ ] **bracketed paste** (`\e[?2004h`): wrap pasted text in `\e[200~…\e[201~`
+      when the app asks for it. Today pomptty writes paste raw to the PTY —
+      multi-line paste auto-runs in a shell, and paste into `vim` mangles
+      indentation. Add a confirm prompt for multi-line / newline-containing
+      pastes (security)
+- [ ] **OSC 52 clipboard**: let apps set the system clipboard (tmux, neovim,
+      `vim` `+clipboard`) — the main way to copy *out of* an SSH session.
+      Reading the clipboard back is gated behind a config opt-in (security)
+- [ ] **OSC 4 / 10 / 11 / 12 / 104 / 110-112 dynamic colors**: apps setting
+      or querying the palette / fg / bg / cursor at runtime (neovim
+      colorschemes, `dircolors`, `$COLORFGBG`). `alacritty_terminal` parses
+      these; the fork drops them
+- [ ] **primary selection** (X11): copy-on-select and middle-click paste of
+      `PRIMARY`, separate from `CLIPBOARD` — Linux muscle memory
+- [ ] **rectangular / block selection** (`Alt`+drag). The backend already
+      has `SelectionType::Block`; the fork's `view.rs` only wires
+      double/triple-click → word/line
+- [ ] **keyboard scrollback / copy-mode**: scroll, select, and search the
+      scrollback with the keyboard (vi-style motions), no mouse — kitty /
+      WezTerm / tmux all have this
+- [ ] **open scrollback (or the last command's output) in `$EDITOR` / `$PAGER`**
+      — kitty's `edit-in-*`, one of its most-loved features; cheap once the
+      M5 block model exists
+- [ ] **kitty keyboard protocol / `CSI u`** (`\e[?…u`): disambiguate
+      `Ctrl+I`/`Tab`, `Ctrl+[`/`Esc`, expose key-release and more modifiers —
+      neovim, helix, and tmux all want it
+- [ ] **bind a key to raw bytes / an escape sequence** — keybindings today
+      only map to named app actions, not "send `\e[1;5D`" or arbitrary input
+- [ ] **desktop notification when a long command finishes** in an unfocused
+      tab/window (the shell hook already knows command + duration; distinct
+      from the bell)
+- [ ] **multiple OS windows**, not just tabs — drag a tab out, `ctrl+shift+n`
+- [ ] **IME / dead-key / compose input** — matters for non-US layouts
+      (umlauts, accents); verify egui's IME path works through the grid
 
 ## Later / polish
 
@@ -198,6 +275,12 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
       files (drop-in behind the `HistoryStore` trait)
 - [ ] history: import an existing `~/.bash_history` / `~/.zsh_history`
 - [ ] configurable UI font / tab-bar density
+- [ ] adjustable cell metrics: line height, letter spacing, window padding
+- [ ] ordered font-fallback *list* in config (not just the one auto Nerd Font)
+- [ ] follow the system light/dark preference; switch theme at runtime
+- [ ] import iTerm2 `.itermcolors` / base16 / Alacritty themes; a theme gallery
+- [ ] Unicode width / wide-char / emoji / grapheme-cluster correctness pass
+- [ ] trim trailing whitespace on copy; "copy as styled" (HTML/RTF)
 - [ ] `TERM` value configurable; ship an `pomptty` terminfo entry
 - [ ] sixel / kitty graphics protocol (inline images)
 - [ ] AI: opt-in, off by default, bring-your-own-key, no data leaves the machine
@@ -205,8 +288,11 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 ## Known issues
 
-- wgpu treats GPU errors as fatal; a texture-allocation failure panics the app
-  (observed on an NVIDIA 940MX under VRAM pressure). Tracked in M8.
+- wgpu treats a mid-run GPU error as fatal; a buffer/texture-allocation
+  failure panics the app (the panic is inside `egui-wgpu`, no config hook).
+  Mitigated by defaulting to a low-power adapter (see M8), so the
+  VRAM-pressure trigger is much less likely, but a real fix needs an
+  `egui-wgpu` fork. Tracked in M8.
 - On Windows: `shell_cwd`/`has_running_child` (`src/terminal/mod.rs`) are
   `/proc`-based and stay Linux-only stubs — no cheap Windows equivalent — so
   cwd-scoped history, new-tab-inherits-cwd, and the busy-tab close-warning
@@ -214,3 +300,6 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
   has no data to show on Windows yet: the shell-integration hook only covers
   bash/zsh/fish, no PowerShell hook exists. Neither crashes anything — both
   are graceful degradations, tracked in M8.
+- The `.deb`/`.rpm` packages (`packaging/`) use a hand-drawn placeholder
+  icon and have no man page yet; the `.deb` maintainer/copyright metadata is
+  the repo owner's info baked in at packaging time. Tracked in M8.

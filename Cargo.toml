@@ -5,6 +5,7 @@ edition = "2024"
 description = "A minimal, Chrome-flavored terminal emulator"
 license = "MIT"
 repository = "https://github.com/MartinThoma/pomptty"
+readme = "README.md"
 
 [dependencies]
 egui = "0.35"
@@ -39,3 +40,27 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[package.metadata.deb]
+maintainer = "Martin Thoma <info@martin-thoma.de>"
+copyright = "2026, Martin Thoma <info@martin-thoma.de>"
+extended-description = """\
+A minimal, Chrome-flavored terminal emulator: GPU-rendered, tabbed, and \
+driven by a single JSON config file that reloads as you edit it."""
+section = "x11"
+priority = "optional"
+changelog = "packaging/changelog"
+assets = [
+    ["target/release/pomptty", "usr/bin/", "755"],
+    ["packaging/pomptty.desktop", "usr/share/applications/", "644"],
+    ["packaging/pomptty.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["README.md", "usr/share/doc/pomptty/README.md", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/pomptty", dest = "/usr/bin/pomptty", mode = "755" },
+    { source = "packaging/pomptty.desktop", dest = "/usr/share/applications/pomptty.desktop", mode = "644" },
+    { source = "packaging/pomptty.svg", dest = "/usr/share/icons/hicolor/scalable/apps/pomptty.svg", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/pomptty/README.md", mode = "644" },
+]

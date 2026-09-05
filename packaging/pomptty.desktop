@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=pomptty
+Comment=A minimal, Chrome-flavored terminal emulator
+Exec=pomptty
+Icon=pomptty
+Terminal=false
+Categories=System;TerminalEmulator;

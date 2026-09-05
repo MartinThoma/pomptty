@@ -139,6 +139,19 @@ impl PompttyApp {
         config_error: Option<String>,
     ) -> Result<Self> {
         let ctx = &cc.egui_ctx;
+        if let Some(info) = cc
+            .wgpu_render_state
+            .as_ref()
+            .map(|rs| rs.adapter.get_info())
+        {
+            log::info!(
+                "GPU: {} ({:?}, {:?} backend) — driver {}",
+                info.name,
+                info.device_type,
+                info.backend,
+                info.driver
+            );
+        }
         let font_variants = crate::fonts::apply(ctx, &config);
         crate::ui::style::apply(ctx, &config.theme);
 
