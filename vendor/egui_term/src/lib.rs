@@ -7,8 +7,12 @@
 //!   detection.
 //! - M9: bracketed paste (`BackendCommand::Paste` / `paste_payload`);
 //!   OSC 4/10/11/12 dynamic colors (`RenderableContent::colors` +
-//!   `resolve_color`); `Ctrl+Alt`+drag block selection; `selectable_content`
-//!   via `Term::selection_to_string` (multi-row copies keep line breaks).
+//!   `resolve_color`), plus the query form answered via `theme_rgb` +
+//!   `BackendCommand::Report`; OSC 52 read direction (`BackendSettings::
+//!   osc52_read`); `Ctrl+Alt`+drag block selection; `selectable_content`
+//!   via `Term::selection_to_string` (multi-row copies keep line breaks);
+//!   `scrollback_text` for "open scrollback in an editor"; `Event::Ime`
+//!   commit handling.
 //!
 //! See pomptty's `ROADMAP.md` for the reasoning. Not otherwise kept in sync
 //! with upstream.
@@ -20,10 +24,11 @@ mod theme;
 mod types;
 mod view;
 
+pub use alacritty_terminal::term::ClipboardType;
 pub use alacritty_terminal::vte::ansi::CursorShape;
 pub use backend::settings::BackendSettings;
 pub use backend::{BackendCommand, PtyEvent, TerminalBackend, TerminalMode};
 pub use bindings::{Binding, BindingAction, InputKind, KeyboardBinding};
 pub use font::{FontSettings, TerminalFont};
 pub use theme::{ColorPalette, TerminalTheme};
-pub use view::TerminalView;
+pub use view::{theme_rgb, TerminalView};

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub use keybindings::KeyBindings;
+pub use keybindings::{KeyBindings, KeySends};
 pub use theme::ThemeConfig;
 
 /// The whole user configuration, deserialized from `config.json`.
@@ -40,6 +40,9 @@ pub struct Config {
     /// Keyboard shortcuts, mapping a chord string (`"ctrl+shift+t"`) to an
     /// [`Action`].
     pub keybindings: KeyBindings,
+    /// Chords that send raw bytes / an escape sequence straight to the shell
+    /// (`"alt+left": "b"`), instead of an app action.
+    pub key_sends: KeySends,
     /// Initial window size, and how the window frame is drawn.
     pub window: WindowConfig,
     /// The `Ctrl+R` command-history search.
@@ -52,8 +55,20 @@ pub struct Config {
     pub paste: PasteConfig,
     /// Desktop notifications.
     pub notifications: NotificationsConfig,
+    /// Clipboard behaviour.
+    pub clipboard: ClipboardConfig,
     /// Safety indicators.
     pub security: SecurityConfig,
+}
+
+/// Clipboard behaviour.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClipboardConfig {
+    /// Let terminal apps *read* the system clipboard via OSC 52
+    /// (`\e]52;c;?\a`, the paste direction). `false` by default — the same
+    /// posture as Alacritty; the *copy* direction is always allowed.
+    pub osc52_read: bool,
 }
 
 /// Safety indicators.
@@ -229,12 +244,14 @@ impl Default for Config {
             shell_args: Vec::new(),
             theme: ThemeConfig::default(),
             keybindings: KeyBindings::default(),
+            key_sends: KeySends::default(),
             window: WindowConfig::default(),
             history: HistoryConfig::default(),
             session: SessionConfig::default(),
             cursor: CursorConfig::default(),
             paste: PasteConfig::default(),
             notifications: NotificationsConfig::default(),
+            clipboard: ClipboardConfig::default(),
             security: SecurityConfig::default(),
         }
     }

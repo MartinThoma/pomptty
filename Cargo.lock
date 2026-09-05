@@ -2898,6 +2898,7 @@ dependencies = [
  "notify",
  "notify-rust",
  "nucleo-matcher",
+ "open",
  "serde",
  "serde_json",
  "tempfile",

@@ -57,6 +57,7 @@
     "shift+pagedown": "scroll-page-down",
     "shift+pageup": "scroll-page-up"
   },
+  "key_sends": {},
   "window": {
     "width": 900.0,
     "height": 560.0,
@@ -78,6 +79,9 @@
   },
   "notifications": {
     "long_command_secs": 300
+  },
+  "clipboard": {
+    "osc52_read": false
   },
   "security": {
     "superuser_warning": true

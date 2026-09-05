@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use egui_term::{
-    BackendCommand, FontSettings, PtyEvent, TerminalFont, TerminalMode, TerminalTheme, TerminalView,
+    BackendCommand, ClipboardType, FontSettings, PtyEvent, TerminalFont, TerminalMode,
+    TerminalTheme, TerminalView, theme_rgb,
 };
 use notify::{RecursiveMode, Watcher};
 
@@ -119,6 +120,8 @@ pub struct PompttyApp {
     notif_baselines: HashMap<u32, usize>,
 
     bindings: Vec<(Chord, Action)>,
+    /// Chords that send raw bytes straight to the shell (`config.key_sends`).
+    key_sends: Vec<(Chord, Vec<u8>)>,
     /// A tab whose close is waiting on the "a process is still running"
     /// confirmation, identified by id so a shifting `Vec` can't misfire it.
     pending_close: Option<TabId>,
@@ -194,6 +197,7 @@ impl PompttyApp {
                 saved.cwd.clone().map(PathBuf::from),
                 config.cursor.shape.to_egui_term(),
                 config.cursor.blink,
+                config.clipboard.osc52_read,
             ) {
                 Ok(mut tab) => {
                     tab.manual_title = saved.title.clone();
@@ -220,6 +224,7 @@ impl PompttyApp {
                 None,
                 config.cursor.shape.to_egui_term(),
                 config.cursor.blink,
+                config.clipboard.osc52_read,
             )?;
             next_tab_id += 1;
             tabs.push(first);
@@ -245,6 +250,7 @@ impl PompttyApp {
             font_touched_at: Instant::now(),
             font_variants,
             bindings: config.keybindings.compile(),
+            key_sends: config.key_sends.compile(),
             config,
             config_path,
             tabs,
@@ -392,6 +398,7 @@ impl PompttyApp {
             cwd,
             self.config.cursor.shape.to_egui_term(),
             self.config.cursor.blink,
+            self.config.clipboard.osc52_read,
         ) {
             Ok(mut tab) => {
                 tab.manual_title = manual_title;
@@ -867,12 +874,43 @@ impl PompttyApp {
                         ));
                     }
                 }
-                // OSC 52: an app (tmux, vim `+clipboard`, neovim) asked to set
-                // the system clipboard — the usual way to copy out of an SSH
-                // session. `alacritty_terminal` only emits this for the "copy"
-                // direction by default; reading the clipboard back stays off.
-                // Primary-vs-clipboard routing is future work (see M9).
-                PtyEvent::ClipboardStore(_, text) => ctx.copy_text(text),
+                // OSC 52 store: `\e]52;c;…` targets the system clipboard,
+                // `\e]52;p;…` / `;s;…` the X11 primary selection. The usual way
+                // to copy out of an SSH session (tmux, vim `+clipboard`, …).
+                PtyEvent::ClipboardStore(ty, text) => match ty {
+                    ClipboardType::Selection => self.primary.set(&text),
+                    ClipboardType::Clipboard => ctx.copy_text(text),
+                },
+                // OSC 52 read (`\e]52;c;?`): only when the user opted in via
+                // `clipboard.osc52_read` — off by default, matching Alacritty.
+                // `alacritty_terminal` won't even emit this event otherwise.
+                PtyEvent::ClipboardLoad(ty, formatter) => {
+                    if self.config.clipboard.osc52_read {
+                        let text = match ty {
+                            ClipboardType::Selection => self.primary.get(),
+                            ClipboardType::Clipboard => self.primary.get_clipboard(),
+                        }
+                        .unwrap_or_default();
+                        let reply = formatter(&text).into_bytes();
+                        if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+                            tab.report(reply);
+                        }
+                    }
+                }
+                // OSC 4/10/11/12 query (`\e]11;?`): answer with the runtime
+                // override for that slot if an app set one, else the theme.
+                PtyEvent::ColorRequest(index, formatter) => {
+                    let rgb = self
+                        .tabs
+                        .iter()
+                        .find(|t| t.id == id)
+                        .and_then(|t| t.backend.last_content().colors[index])
+                        .unwrap_or_else(|| theme_rgb(&self.theme, index));
+                    let reply = formatter(rgb).into_bytes();
+                    if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+                        tab.report(reply);
+                    }
+                }
                 _ => {}
             }
         }
@@ -942,6 +980,7 @@ impl PompttyApp {
         self.font_size = cfg.font_size;
         self.font_dirty = false;
         self.bindings = cfg.keybindings.compile();
+        self.key_sends = cfg.key_sends.compile();
         self.font_variants = crate::fonts::apply(ctx, &cfg);
         crate::ui::style::apply(ctx, &cfg.theme);
         self.config = cfg;
@@ -1060,15 +1099,26 @@ impl PompttyApp {
 
     fn handle_bindings(&mut self, ctx: &egui::Context) {
         let mut hits: Vec<Action> = Vec::new();
+        let mut sends: Vec<Vec<u8>> = Vec::new();
         ctx.input_mut(|input| {
             for (chord, action) in &self.bindings {
                 if action.is_active() && input.consume_key(chord.modifiers, chord.key) {
                     hits.push(*action);
                 }
             }
+            // `key_sends` is checked after the app actions, so a chord that
+            // appears in both `keybindings` and `key_sends` runs the action.
+            for (chord, bytes) in &self.key_sends {
+                if input.consume_key(chord.modifiers, chord.key) {
+                    sends.push(bytes.clone());
+                }
+            }
         });
         for action in hits {
             self.dispatch(action, ctx);
+        }
+        for bytes in sends {
+            self.active_tab().write(bytes);
         }
     }
 
@@ -1139,6 +1189,7 @@ impl PompttyApp {
             Action::WindowLeftHalf | Action::WindowRightHalf => {
                 self.tile_window(ctx, action == Action::WindowRightHalf);
             }
+            Action::OpenScrollback => self.open_scrollback(),
             // Inert here: handled by the terminal widget, or filtered out before
             // dispatch (see `Action::is_active` and `KeyBindings::compile`).
             Action::Copy | Action::Paste | Action::Disabled => {}
@@ -1159,6 +1210,23 @@ impl PompttyApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(half));
+    }
+
+    /// Dump the active tab's scrollback to a temp file and hand it to the
+    /// system's default handler (a GUI editor / viewer). A GUI app can't host
+    /// a TUI pager, so this is the pragmatic equivalent of kitty's
+    /// `edit-in-editor`.
+    fn open_scrollback(&mut self) {
+        let text = self.active_tab().scrollback_text();
+        let pid = self.active_tab().backend.pty_id();
+        let path = std::env::temp_dir().join(format!("pomptty-scrollback-{pid}.txt"));
+        if let Err(e) = std::fs::write(&path, text) {
+            self.set_toast(format!("Could not write scrollback: {e}"));
+            return;
+        }
+        if let Err(e) = open::that_detached(&path) {
+            self.set_toast(format!("Could not open scrollback: {e}"));
+        }
     }
 }
 

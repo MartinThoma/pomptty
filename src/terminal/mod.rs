@@ -80,6 +80,7 @@ impl TerminalTab {
         cwd: Option<PathBuf>,
         cursor_shape: CursorShape,
         cursor_blinking: bool,
+        osc52_read: bool,
     ) -> Result<Self> {
         let shell = shell
             .or_else(|| std::env::var("SHELL").ok())
@@ -95,6 +96,7 @@ impl TerminalTab {
                 working_directory: cwd.filter(|p| p.is_dir()),
                 cursor_shape,
                 cursor_blinking,
+                osc52_read,
             },
         )
         .context("failed to start the shell process")?;
@@ -124,6 +126,17 @@ impl TerminalTab {
     /// recalled command).
     pub fn write(&mut self, bytes: Vec<u8>) {
         self.backend.process_command(BackendCommand::Write(bytes));
+    }
+
+    /// Write a protocol reply (OSC 52 clipboard read, OSC 10/11/12 colour
+    /// query) to the PTY without scrolling the viewport.
+    pub fn report(&mut self, bytes: Vec<u8>) {
+        self.backend.process_command(BackendCommand::Report(bytes));
+    }
+
+    /// The active tab's whole grid + scrollback as plain text.
+    pub fn scrollback_text(&self) -> String {
+        self.backend.scrollback_text()
     }
 
     /// Whether a process other than the shell itself is running in this tab

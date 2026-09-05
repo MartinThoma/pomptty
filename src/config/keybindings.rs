@@ -55,6 +55,9 @@ pub enum Action {
     WindowLeftHalf,
     /// Un-maximize and tile the window to the right half of the screen.
     WindowRightHalf,
+    /// Dump the scrollback of the active tab to a temp file and open it with
+    /// the system's default handler.
+    OpenScrollback,
     /// Turn a default binding off. Put `"<chord>": "disabled"` in the config to
     /// suppress a shortcut that would otherwise come from the defaults.
     Disabled,
@@ -87,6 +90,7 @@ impl Action {
             Action::WindowRestore => "window-restore".into(),
             Action::WindowLeftHalf => "window-left-half".into(),
             Action::WindowRightHalf => "window-right-half".into(),
+            Action::OpenScrollback => "open-scrollback".into(),
             Action::Disabled => "disabled".into(),
         }
     }
@@ -116,6 +120,7 @@ impl Action {
             "window-restore" => Action::WindowRestore,
             "window-left-half" => Action::WindowLeftHalf,
             "window-right-half" => Action::WindowRightHalf,
+            "open-scrollback" => Action::OpenScrollback,
             "disabled" => Action::Disabled,
             other => Action::GotoTab(other.strip_prefix("goto-tab-")?.parse().ok()?),
         })
@@ -324,6 +329,89 @@ impl Default for KeyBindings {
     }
 }
 
+/// A table of chords that send raw bytes / an escape sequence to the PTY,
+/// rather than triggering an app [`Action`]. Config key `key_sends`:
+///
+/// ```json
+/// "key_sends": { "alt+left": "b", "ctrl+alt+k": "\r\n" }
+/// ```
+///
+/// The value string supports `\e` / `\x1b`, `\xNN`, `\u{NNNN}`, `\n`, `\r`,
+/// `\t`, `\0` and `\\`; any other text is sent as-is (UTF-8).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct KeySends(pub BTreeMap<String, String>);
+
+impl KeySends {
+    /// Parse into `(Chord, bytes)` pairs, logging (not failing on) a
+    /// malformed chord.
+    pub fn compile(&self) -> Vec<(Chord, Vec<u8>)> {
+        let mut out = Vec::with_capacity(self.0.len());
+        for (chord, seq) in &self.0 {
+            match parse_chord(chord) {
+                Ok(c) => out.push((c, parse_escapes(seq))),
+                Err(e) => log::warn!("ignoring key_sends entry {chord:?}: {e}"),
+            }
+        }
+        out
+    }
+}
+
+/// Expand backslash escapes in a `key_sends` value into raw bytes.
+pub fn parse_escapes(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            continue;
+        }
+        match chars.next() {
+            Some('e') => out.push(0x1b),
+            Some('n') => out.push(b'\n'),
+            Some('r') => out.push(b'\r'),
+            Some('t') => out.push(b'\t'),
+            Some('0') => out.push(0),
+            Some('\\') => out.push(b'\\'),
+            Some('x') => {
+                let hex: String = (0..2).filter_map(|_| chars.next()).collect();
+                match u8::from_str_radix(&hex, 16) {
+                    Ok(b) => out.push(b),
+                    Err(_) => {
+                        out.push(b'\\');
+                        out.push(b'x');
+                        out.extend_from_slice(hex.as_bytes());
+                    }
+                }
+            }
+            Some('u') => {
+                // \u{NNNN}
+                let rest: String = chars.by_ref().take_while(|&c| c != '}').collect();
+                let hex = rest.strip_prefix('{').unwrap_or(&rest);
+                match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) {
+                    Some(ch) => {
+                        let mut buf = [0u8; 4];
+                        out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+                    }
+                    None => {
+                        out.push(b'\\');
+                        out.push(b'u');
+                        out.extend_from_slice(rest.as_bytes());
+                    }
+                }
+            }
+            Some(other) => {
+                out.push(b'\\');
+                let mut buf = [0u8; 4];
+                out.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
+            }
+            None => out.push(b'\\'),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +464,7 @@ mod tests {
             Action::GotoTab(3),
             Action::WindowMaximize,
             Action::WindowLeftHalf,
+            Action::OpenScrollback,
             Action::Disabled,
         ] {
             let json = serde_json::to_string(&a).unwrap();
@@ -453,6 +542,28 @@ mod tests {
         // The bogus chord is skipped; the good one and all defaults remain.
         assert_eq!(compiled.len(), KeyBindings::default().0.len() + 1);
         assert!(compiled.iter().all(|(_, a)| *a != Action::Disabled));
+    }
+
+    #[test]
+    fn parse_escapes_expands_the_common_forms() {
+        assert_eq!(parse_escapes("b"), b"b");
+        assert_eq!(parse_escapes(r"\e[1;5D"), b"\x1b[1;5D");
+        assert_eq!(parse_escapes(r"\x1b\x5b"), b"\x1b[");
+        assert_eq!(parse_escapes(r"\r\n\t\0"), b"\r\n\t\0");
+        assert_eq!(parse_escapes(r"a\\b"), b"a\\b");
+        assert_eq!(parse_escapes(r"\u{1b}OP"), b"\x1bOP");
+        // A malformed escape is kept literally rather than dropped.
+        assert_eq!(parse_escapes(r"\q"), b"\\q");
+    }
+
+    #[test]
+    fn key_sends_compile_skips_bad_chords() {
+        let ks: KeySends =
+            serde_json::from_str(r#"{ "alt+left": "b", "ctrl+nonsense": "\\u{1b}x" }"#).unwrap();
+        let compiled = ks.compile();
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].0.key, Key::ArrowLeft);
+        assert_eq!(compiled[0].1, b"b");
     }
 
     #[test]

@@ -154,7 +154,19 @@ the file, and binding a chord to `"disabled"` removes a default
 | `omnibox` | `ctrl+shift+p` | command palette: actions, tabs, history and recent directories in one ranked list |
 | `window-maximize` / `window-restore` | — | also in the palette as "View: Maximize / Restore Window" |
 | `window-left-half` / `window-right-half` | — | un-maximize and tile the window to that half of the screen; "View: Move to Left / Right Half" |
+| `open-scrollback` | — | dump the active tab's scrollback to a temp file and open it in your default editor; "Terminal: Open Scrollback in Editor" |
 | `disabled` | — | suppresses a default binding |
+
+To send a raw byte string or escape sequence to the shell instead of running
+an action, use the separate **`key_sends`** map — chord → string, where the
+string understands `\e` / `\x1b`, `\xNN`, `\u{NNNN}`, `\n`, `\r`, `\t`, `\0`
+and `\\`:
+
+```json
+"key_sends": { "alt+left": "b", "alt+right": "f", "ctrl+alt+k": "\u{1b}[1;5D" }
+```
+
+A chord listed in both `keybindings` and `key_sends` runs the action.
 
 ### Mouse
 
@@ -226,12 +238,14 @@ config.
 | `shell_args` | Extra arguments for the shell. |
 | `theme` | A builtin name or an inline palette object (see below). |
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
+| `key_sends` | Map of chord → raw byte string / escape sequence sent to the shell (see [Keybindings](#keybindings)). |
 | `window` | `width` / `height` in logical pixels, and `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly; takes effect on restart). |
 | `history` | `enabled` (default `true`) — whether <kbd>Ctrl</kbd>+<kbd>R</kbd> opens the overlay (see [Shell integration](#shell-integration)); `max_results` (default `50`) — rows shown at once. |
 | `session` | `restore` (default `true`) — reopen the last run's tabs, directories and renames on launch; also stops pomptty recording them when `false`. Saved to `session.json` next to the history logs. |
 | `cursor` | `shape` (default `"block"`; also `"beam"`, `"underline"`) and `blink` (default `true`) — the cursor's appearance before an app sets its own via DECSCUSR (`vim`'s insert-mode beam, for instance, still overrides this at runtime). |
 | `paste` | `confirm_multiline` (default `true`) — ask before pasting newline-containing text into a shell that hasn't enabled bracketed paste, where each line would run on arrival. |
 | `notifications` | `long_command_secs` (default `300`) — post a desktop notification when a command that ran at least this long finishes while pomptty is unfocused, minimised, or on another tab; `0` disables it. Needs the [shell integration](#shell-integration). |
+| `clipboard` | `osc52_read` (default `false`) — let terminal apps *read* the system clipboard via OSC 52 (`\e]52;c;?`); the *copy* direction is always allowed. Off by default, matching Alacritty. New tabs pick up a change. |
 | `security` | `superuser_warning` (default `true`) — red terminal outline + tab dot while the shell (or `sudo -s` / `su` / a long `sudo …` under it) is running as `root`. Linux only. |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the

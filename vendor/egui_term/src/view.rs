@@ -4,7 +4,7 @@ use alacritty_terminal::index::Point as TerminalGridPoint;
 use alacritty_terminal::term::cell;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::TermMode;
-use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
+use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 use egui::epaint::RectShape;
 use egui::Color32;
 use egui::Modifiers;
@@ -156,6 +156,11 @@ impl<'a> TerminalView<'a> {
                     &self.bindings_layout,
                     modifiers,
                 )),
+                // Composed input (dead keys, compose key, CJK IME): the
+                // platform hands us the finished string on commit.
+                egui::Event::Ime(egui::ImeEvent::Commit(text)) => input_actions.push(
+                    InputAction::BackendCall(BackendCommand::Write(text.into_bytes())),
+                ),
                 egui::Event::MouseWheel { unit, delta, .. } => input_actions.push(
                     process_mouse_wheel(state, self.font.font_type().size, unit, delta),
                 ),
@@ -346,6 +351,35 @@ impl<'a> TerminalView<'a> {
         }
 
         painter.extend(shapes);
+    }
+}
+
+/// The configured theme's RGB for a `Colors` slot index (0..256 = the ANSI
+/// palette, 256/257/258 = fg/bg/cursor, 259..269 = dim/bright variants).
+/// Used to answer an OSC 4/10/11/12 colour *query* for a slot the app has
+/// not overridden at runtime.
+pub fn theme_rgb(theme: &TerminalTheme, index: usize) -> Rgb {
+    let color = match index {
+        0..=255 => Color::Indexed(index as u8),
+        256 => Color::Named(NamedColor::Foreground),
+        257 => Color::Named(NamedColor::Background),
+        258 => Color::Named(NamedColor::Cursor),
+        259 => Color::Named(NamedColor::DimBlack),
+        260 => Color::Named(NamedColor::DimRed),
+        261 => Color::Named(NamedColor::DimGreen),
+        262 => Color::Named(NamedColor::DimYellow),
+        263 => Color::Named(NamedColor::DimBlue),
+        264 => Color::Named(NamedColor::DimMagenta),
+        265 => Color::Named(NamedColor::DimCyan),
+        266 => Color::Named(NamedColor::DimWhite),
+        267 => Color::Named(NamedColor::BrightForeground),
+        _ => Color::Named(NamedColor::DimForeground),
+    };
+    let c = theme.get_color(color);
+    Rgb {
+        r: c.r(),
+        g: c.g(),
+        b: c.b(),
     }
 }
 
@@ -727,4 +761,23 @@ fn process_mouse_move(
     }
 
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::theme_rgb;
+    use crate::theme::TerminalTheme;
+
+    #[test]
+    fn theme_rgb_maps_named_and_indexed_slots() {
+        let theme = TerminalTheme::default();
+        // 256/257/258 = foreground / background / cursor.
+        let fg = theme_rgb(&theme, 256);
+        assert_eq!((fg.r, fg.g, fg.b), (0xd8, 0xd8, 0xd8));
+        let bg = theme_rgb(&theme, 257);
+        assert_eq!((bg.r, bg.g, bg.b), (0x18, 0x18, 0x18));
+        // Palette index 1 = red.
+        let red = theme_rgb(&theme, 1);
+        assert_eq!((red.r, red.g, red.b), (0xac, 0x42, 0x42));
+    }
 }

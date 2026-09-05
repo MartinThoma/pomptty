@@ -11,7 +11,7 @@ use alacritty_terminal::selection::{
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 use alacritty_terminal::term::{
-    self, cell::Cell, color::Colors, test::TermSize, viewport_to_point, Term, TermMode,
+    self, cell::Cell, color::Colors, test::TermSize, viewport_to_point, Osc52, Term, TermMode,
 };
 use alacritty_terminal::vte::ansi::CursorStyle;
 use alacritty_terminal::{tty, Grid};
@@ -35,6 +35,9 @@ pub enum BackendCommand {
     /// the app enabled bracketed paste, newlines normalised otherwise. Use
     /// this rather than `Write` for anything that came from a clipboard.
     Paste(String),
+    /// Write a protocol reply (OSC 52 clipboard read, OSC 10/11/12 colour
+    /// query, …) to the PTY without scrolling the viewport to the bottom.
+    Report(Vec<u8>),
     Scroll(i32),
     Resize(Size, Size),
     SelectStart(SelectionType, f32, f32),
@@ -181,6 +184,11 @@ impl TerminalBackend {
                 shape: settings.cursor_shape,
                 blinking: settings.cursor_blinking,
             },
+            osc52: if settings.osc52_read {
+                Osc52::CopyPaste
+            } else {
+                Osc52::OnlyCopy
+            },
             ..term::Config::default()
         };
         let terminal_size = TerminalSize::default();
@@ -257,6 +265,9 @@ impl TerminalBackend {
                 self.write(paste_payload(&text, bracketed));
                 term.scroll_display(Scroll::Bottom);
             }
+            BackendCommand::Report(bytes) => {
+                self.write(bytes);
+            }
             BackendCommand::Scroll(delta) => {
                 self.scroll(&mut term, delta);
             }
@@ -298,6 +309,15 @@ impl TerminalBackend {
     /// selections are column-shaped, and trailing whitespace is trimmed.
     pub fn selectable_content(&self) -> String {
         self.term.lock().selection_to_string().unwrap_or_default()
+    }
+
+    /// The whole grid plus scrollback as plain text, for "open scrollback in
+    /// an editor".
+    pub fn scrollback_text(&self) -> String {
+        let term = self.term.lock();
+        let start = Point::new(term.topmost_line(), Column(0));
+        let end = Point::new(term.bottommost_line(), term.last_column());
+        term.bounds_to_string(start, end)
     }
 
     pub fn sync(&mut self) -> &RenderableContent {

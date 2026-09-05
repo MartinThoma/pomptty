@@ -66,6 +66,18 @@ mod imp {
                 .ok()
                 .filter(|s| !s.is_empty())
         }
+
+        /// The regular `CLIPBOARD` contents, for an OSC 52 read request.
+        pub fn get_clipboard(&mut self) -> Option<String> {
+            use arboard::GetExtLinux;
+            self.clipboard
+                .as_mut()?
+                .get()
+                .clipboard(LinuxClipboardKind::Clipboard)
+                .text()
+                .ok()
+                .filter(|s| !s.is_empty())
+        }
     }
 }
 
@@ -79,6 +91,9 @@ mod stub {
         }
         pub fn set(&mut self, _text: &str) {}
         pub fn get(&mut self) -> Option<String> {
+            None
+        }
+        pub fn get_clipboard(&mut self) -> Option<String> {
             None
         }
     }

@@ -41,6 +41,10 @@ const PALETTE_ACTIONS: &[(&str, Action)] = &[
     ("View: Restore Window", Action::WindowRestore),
     ("View: Move to Left Half", Action::WindowLeftHalf),
     ("View: Move to Right Half", Action::WindowRightHalf),
+    (
+        "Terminal: Open Scrollback in Editor",
+        Action::OpenScrollback,
+    ),
 ];
 
 /// What the palette decided this frame.

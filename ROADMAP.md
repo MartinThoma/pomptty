@@ -16,8 +16,8 @@ Three pillars carry the identity: **M5 command blocks** (the flagship — Warp's
 best idea, without the account / telemetry / AI / weight), **M6 browser-shaped
 workflow** (the omnibox and everything around it), and **M4 stunning-by-default**
 (the reason someone tries it at all). Everything else is table stakes (**M9**,
-parity with mainstream terminals — the "don't lose me on day one" set) or
-later.
+parity with mainstream terminals — the "don't lose me on day one" set;
+**M10**, the heavier input/windowing features) or later.
 
 Deliberate non-goals: no account, no telemetry, no AI-by-default (at most a
 much-later opt-in, bring-your-own-key).
@@ -248,20 +248,20 @@ bounces off it.
       paste — where each line runs on arrival. Covers `Ctrl+Shift+V` and
       middle-click; single-line pastes and bracketed-paste apps pass straight
       through. `paste.confirm_multiline` config (default `true`)
-- [~] **OSC 52 clipboard**: apps setting the system clipboard (tmux, neovim,
-      `vim` `+clipboard`) now works — the main way to copy *out of* an SSH
-      session (`PtyEvent::ClipboardStore` → `ctx.copy_text` in `src/app.rs`;
-      `alacritty_terminal`'s default `Osc52::OnlyCopy` already gates it to the
-      copy direction). Still open: routing `p`/`s` requests to the X11 primary
-      selection (needs the primary-selection work below), and a config opt-in
-      for the *read* direction
-- [~] **OSC 4 / 10 / 11 / 12 / 104 / 110-112 dynamic colors**: apps *setting*
-      the palette / fg / bg / cursor at runtime now works (neovim
-      colorschemes, `dircolors`) — `RenderableContent::colors` +
-      `resolve_color` in the `egui_term` fork; resets fall back to the
-      configured theme. Still open: the *query* form (`OSC 10;?` →
-      `Event::ColorRequest`), which needs the theme's defaults reachable from
-      the backend thread to answer for un-overridden slots
+- [x] **OSC 52 clipboard**: apps setting the system clipboard (tmux, neovim,
+      `vim` `+clipboard`) — the main way to copy *out of* an SSH session.
+      `\e]52;c;…` → `CLIPBOARD`, `\e]52;p/s;…` → the X11 primary selection
+      (`PtyEvent::ClipboardStore` routed by `ClipboardType` in `src/app.rs`).
+      The *read* direction (`\e]52;c;?`) is a config opt-in,
+      `clipboard.osc52_read` (default off, matching Alacritty), answered via
+      `arboard` + `BackendCommand::Report`
+- [x] **OSC 4 / 10 / 11 / 12 / 104 / 110-112 dynamic colors**: apps *setting*
+      the palette / fg / bg / cursor at runtime (neovim colorschemes,
+      `dircolors`) — `RenderableContent::colors` + `resolve_color` in the
+      fork; resets fall back to the configured theme. The *query* form
+      (`\e]11;?` → `PtyEvent::ColorRequest`) is answered from the runtime
+      override or, failing that, the theme (`egui_term::theme_rgb` →
+      `BackendCommand::Report`)
 - [x] **primary selection** (X11/Wayland): the mouse selection is mirrored
       onto `PRIMARY`, middle-click pastes it (via bracketed paste, so
       multi-line is safe). `arboard` directly, since egui only exposes
@@ -273,25 +273,42 @@ bounces off it.
       fixed a pre-existing fork bug where *any* multi-row copy (block, plain,
       `Ctrl+Shift+C`) was mashed onto one line — `selectable_content()` now
       uses `alacritty_terminal`'s own `selection_to_string()`
-- [ ] **keyboard scrollback / copy-mode**: scroll, select, and search the
-      scrollback with the keyboard (vi-style motions), no mouse — kitty /
-      WezTerm / tmux all have this
-- [ ] **open scrollback (or the last command's output) in `$EDITOR` / `$PAGER`**
-      — kitty's `edit-in-*`, one of its most-loved features; cheap once the
-      M5 block model exists
-- [ ] **kitty keyboard protocol / `CSI u`** (`\e[?…u`): disambiguate
-      `Ctrl+I`/`Tab`, `Ctrl+[`/`Esc`, expose key-release and more modifiers —
-      neovim, helix, and tmux all want it
-- [ ] **bind a key to raw bytes / an escape sequence** — keybindings today
-      only map to named app actions, not "send `\e[1;5D`" or arbitrary input
+- [x] **open scrollback in an editor** — `open-scrollback` action /
+      "Terminal: Open Scrollback in Editor" in the palette dumps the tab's
+      grid + scrollback to a temp file and hands it to the system's default
+      handler (`egui_term::TerminalBackend::scrollback_text` + the `open`
+      crate). A GUI app can't host a TUI pager, so this is the pragmatic
+      version of kitty's `edit-in-*`; "just the last command's output" waits
+      on the M5 block model
+- [x] **bind a key to raw bytes / an escape sequence** — the `key_sends`
+      config map (chord → string, with `\e` / `\xNN` / `\u{NNNN}` / `\n`
+      etc.), checked in `handle_bindings` after the app actions
 - [x] **desktop notification when a long command finishes** while pomptty is
       unfocused, minimised, or on another tab. A background thread watches the
       shell-hook logs (independent of the UI loop, so it fires while
       minimised); `notifications.long_command_secs` config, default 300
       (`0` off). Needs the shell-integration hook.
-- [ ] **multiple OS windows**, not just tabs — drag a tab out, `ctrl+shift+n`
-- [ ] **IME / dead-key / compose input** — matters for non-US layouts
-      (umlauts, accents); verify egui's IME path works through the grid
+- [x] **IME / dead-key / compose input** — the fork handles
+      `egui::Event::Ime(Commit)` (→ write the committed string to the PTY),
+      so the compose key and X11 dead keys reach the shell. No inline
+      preedit rendering yet (CJK candidate text commits on selection).
+
+## M10 — advanced input & windowing
+
+Promoted out of M9: each is a feature in its own right, not a quick
+table-stakes fix.
+
+- [ ] **keyboard scrollback / copy-mode**: scroll, select, and search the
+      scrollback with the keyboard (vi-style motions), no mouse — kitty /
+      WezTerm / tmux all have this
+- [ ] **kitty keyboard protocol / `CSI u`** (`\e[?…u`): disambiguate
+      `Ctrl+I`/`Tab`, `Ctrl+[`/`Esc`, expose key-release and more modifiers —
+      neovim, helix, and tmux all want it. `alacritty_terminal` tracks the
+      mode flags; the frontend has to *encode* key events to match (≈
+      alacritty's `input/keyboard.rs`)
+- [ ] **multiple OS windows**, not just tabs — drag a tab out,
+      `ctrl+shift+n`; needs egui multi-viewport and moving a PTY-backed tab
+      between windows
 
 ## Later / polish
 
