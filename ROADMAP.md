@@ -258,9 +258,11 @@ bounces off it.
       `CLIPBOARD`; `src/primary_selection.rs`, a no-op stub off Linux.
       Middle-click still isn't *forwarded* to apps in mouse mode — separate
       gap
-- [ ] **rectangular / block selection** (`Alt`+drag). The backend already
-      has `SelectionType::Block`; the fork's `view.rs` only wires
-      double/triple-click → word/line
+- [x] **rectangular / block selection**: `Ctrl`+`Alt`+drag (plain `Alt`+drag
+      is the WM's move-window gesture on most X11 setups, e.g. Marco). Also
+      fixed a pre-existing fork bug where *any* multi-row copy (block, plain,
+      `Ctrl+Shift+C`) was mashed onto one line — `selectable_content()` now
+      uses `alacritty_terminal`'s own `selection_to_string()`
 - [ ] **keyboard scrollback / copy-mode**: scroll, select, and search the
       scrollback with the keyboard (vi-style motions), no mouse — kitty /
       WezTerm / tmux all have this

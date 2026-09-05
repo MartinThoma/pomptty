@@ -7,7 +7,8 @@
 //!   detection.
 //! - M9: bracketed paste (`BackendCommand::Paste` / `paste_payload`);
 //!   OSC 4/10/11/12 dynamic colors (`RenderableContent::colors` +
-//!   `resolve_color`).
+//!   `resolve_color`); `Ctrl+Alt`+drag block selection; `selectable_content`
+//!   via `Term::selection_to_string` (multi-row copies keep line breaks).
 //!
 //! See pomptty's `ROADMAP.md` for the reasoning. Not otherwise kept in sync
 //! with upstream.

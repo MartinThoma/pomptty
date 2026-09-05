@@ -613,7 +613,7 @@ fn process_left_button(
             pressed,
         ))
     } else if pressed {
-        process_left_button_pressed(state, layout, position)
+        process_left_button_pressed(state, layout, position, modifiers)
     } else {
         process_left_button_released(state, layout, backend, bindings_layout, position, modifiers)
     }
@@ -623,9 +623,10 @@ fn process_left_button_pressed(
     state: &mut TerminalViewState,
     layout: &Response,
     position: Pos2,
+    modifiers: &Modifiers,
 ) -> InputAction {
     state.is_dragged = true;
-    InputAction::BackendCall(build_start_select_command(layout, position))
+    InputAction::BackendCall(build_start_select_command(layout, position, modifiers))
 }
 
 fn process_left_button_released(
@@ -638,7 +639,7 @@ fn process_left_button_released(
 ) -> InputAction {
     state.is_dragged = false;
     if layout.double_clicked() || layout.triple_clicked() {
-        InputAction::BackendCall(build_start_select_command(layout, position))
+        InputAction::BackendCall(build_start_select_command(layout, position, modifiers))
     } else {
         let terminal_content = backend.last_content();
         let binding_action = bindings_layout.get_action(
@@ -658,11 +659,19 @@ fn process_left_button_released(
     }
 }
 
-fn build_start_select_command(layout: &Response, cursor_position: Pos2) -> BackendCommand {
+fn build_start_select_command(
+    layout: &Response,
+    cursor_position: Pos2,
+    modifiers: &Modifiers,
+) -> BackendCommand {
     let selection_type = if layout.double_clicked() {
         SelectionType::Semantic
     } else if layout.triple_clicked() {
         SelectionType::Lines
+    } else if modifiers.alt && modifiers.command {
+        // Ctrl+Alt+drag: rectangular / column selection. (Plain Alt+drag is
+        // commonly the window manager's move-window gesture on X11.)
+        SelectionType::Block
     } else {
         SelectionType::Simple
     };
