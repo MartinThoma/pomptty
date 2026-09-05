@@ -50,6 +50,26 @@ pub struct Config {
     pub cursor: CursorConfig,
     /// Clipboard-paste behaviour.
     pub paste: PasteConfig,
+    /// Desktop notifications.
+    pub notifications: NotificationsConfig,
+}
+
+/// Desktop notifications.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NotificationsConfig {
+    /// Post a desktop notification when a command that ran at least this many
+    /// seconds finishes while pomptty is unfocused or on another tab. `0`
+    /// disables it. Default 300 (5 minutes). Needs the shell-integration hook.
+    pub long_command_secs: u64,
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            long_command_secs: 300,
+        }
+    }
 }
 
 /// Paste safety.
@@ -194,6 +214,7 @@ impl Default for Config {
             session: SessionConfig::default(),
             cursor: CursorConfig::default(),
             paste: PasteConfig::default(),
+            notifications: NotificationsConfig::default(),
         }
     }
 }

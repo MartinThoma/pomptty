@@ -75,5 +75,8 @@
   },
   "paste": {
     "confirm_multiline": true
+  },
+  "notifications": {
+    "long_command_secs": 300
   }
 }

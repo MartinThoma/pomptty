@@ -56,6 +56,9 @@ the PTY. Linux and Windows are supported; macOS is on the
 - **Fuzzy history search** (<kbd>Ctrl</kbd>+<kbd>R</kbd>) — an overlay ranked by
   relevance, recency and frequency, showing each command's directory, exit
   status and age; opt-in via a [one-line shell hook](#shell-integration).
+- **Long-command notifications** — a desktop notification when a command that
+  ran 5+ minutes (configurable) finishes while pomptty is unfocused, minimised,
+  or on another tab. Uses the same shell hook.
 - Font zoom, scrollback keys, and clear-screen.
 - Mouse selection with copy/paste
   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> /
@@ -225,6 +228,7 @@ config.
 | `session` | `restore` (default `true`) — reopen the last run's tabs, directories and renames on launch; also stops pomptty recording them when `false`. Saved to `session.json` next to the history logs. |
 | `cursor` | `shape` (default `"block"`; also `"beam"`, `"underline"`) and `blink` (default `true`) — the cursor's appearance before an app sets its own via DECSCUSR (`vim`'s insert-mode beam, for instance, still overrides this at runtime). |
 | `paste` | `confirm_multiline` (default `true`) — ask before pasting newline-containing text into a shell that hasn't enabled bracketed paste, where each line would run on arrival. |
+| `notifications` | `long_command_secs` (default `300`) — post a desktop notification when a command that ran at least this long finishes while pomptty is unfocused, minimised, or on another tab; `0` disables it. Needs the [shell integration](#shell-integration). |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the
 fallback chain, so powerline prompts and devicon themes render their icons rather

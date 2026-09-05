@@ -1,7 +1,9 @@
 //! The eframe application: owns the tabs, config, and the frame around them.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -104,6 +106,14 @@ pub struct PompttyApp {
 
     config_reload_rx: Receiver<()>,
     _config_watcher: Option<notify::RecommendedWatcher>,
+
+    /// Shared with the long-command-notification thread, refreshed each frame.
+    /// The thread watches the history logs on its own so a finished command is
+    /// still noticed while pomptty is minimized (its UI loop is suspended).
+    notifier: Arc<Mutex<NotifierState>>,
+    /// Per shell PID, the log record count when pomptty first saw that shell —
+    /// the notifier only fires for records past this. Computed once per tab.
+    notif_baselines: HashMap<u32, usize>,
 
     bindings: Vec<(Chord, Action)>,
     /// A tab whose close is waiting on the "a process is still running"
@@ -212,6 +222,12 @@ impl PompttyApp {
 
         let (config_reload_rx, watcher) = spawn_config_watcher(&config_path, ctx.clone());
 
+        let notifier = Arc::new(Mutex::new(NotifierState {
+            threshold_secs: config.notifications.long_command_secs,
+            ..NotifierState::default()
+        }));
+        spawn_long_command_notifier(notifier.clone());
+
         let custom_chrome = config.window.decorations == crate::config::Decoration::Custom;
         let mut app = Self {
             theme: config.theme.terminal_theme(),
@@ -233,6 +249,8 @@ impl PompttyApp {
             pty_events_rx,
             config_reload_rx,
             _config_watcher: watcher,
+            notifier,
+            notif_baselines: HashMap::new(),
             pending_close: None,
             history: LogStore::new(),
             history_overlay: None,
@@ -863,6 +881,33 @@ impl PompttyApp {
         }
     }
 
+    /// Refresh the state the long-command-notification thread reads: which
+    /// shells are live (with their baseline record count), which one is on
+    /// screen, and whether pomptty has focus.
+    fn update_notifier_state(&mut self, ctx: &egui::Context) {
+        let focused = ctx.input(|i| i.focused);
+        let active_pid = self.tabs.get(self.active).map(|t| t.backend.pty_id());
+        let pids: Vec<(u32, usize)> = self
+            .tabs
+            .iter()
+            .map(|t| {
+                let pid = t.backend.pty_id();
+                let baseline = *self
+                    .notif_baselines
+                    .entry(pid)
+                    .or_insert_with(|| count_log_records(pid));
+                (pid, baseline)
+            })
+            .collect();
+        if let Ok(mut s) = self.notifier.lock() {
+            s.threshold_secs = self.config.notifications.long_command_secs;
+            s.focused = focused;
+            s.active_pid = active_pid;
+            s.live_pids = pids;
+            s.last_update = Some(Instant::now());
+        }
+    }
+
     /// Reload `config.json`. `announce` controls whether a no-op reload (the
     /// common case for our own font-size write-backs coming back through the
     /// file watcher) still shows a toast — it does only for the manual
@@ -1077,6 +1122,7 @@ impl eframe::App for PompttyApp {
             return;
         }
         self.pump_config_reload(&ctx);
+        self.update_notifier_state(&ctx);
         if !self.tabs.is_empty() {
             self.intercept_multiline_paste(&ctx);
         }
@@ -1529,9 +1575,169 @@ fn spawn_config_watcher(
     }
 }
 
+/// The slice of app state the notification thread reads, refreshed every
+/// frame by [`PompttyApp::update_notifier_state`].
+#[derive(Default)]
+struct NotifierState {
+    /// Notify for commands at least this long. `0` = feature off.
+    threshold_secs: u64,
+    focused: bool,
+    active_pid: Option<u32>,
+    /// `(shell pid, baseline record count)` for each live tab.
+    live_pids: Vec<(u32, usize)>,
+    /// When the UI thread last refreshed this. If it's gone quiet (window
+    /// minimised → eframe stops calling `update`), the notifier can't trust
+    /// `focused`/`active_pid` and just always notifies.
+    last_update: Option<Instant>,
+}
+
+/// Spawn the thread that watches the history logs and posts a desktop
+/// notification when a long command finishes while pomptty isn't the thing
+/// being looked at. Independent of the UI loop, so it still fires while
+/// pomptty is minimized. The `notify` watcher is owned by the thread.
+fn spawn_long_command_notifier(shared: Arc<Mutex<NotifierState>>) {
+    let Some(dir) = crate::history::history_dir() else {
+        return;
+    };
+    let (tx, rx) = channel::<()>();
+    let watcher = (|| -> notify::Result<notify::RecommendedWatcher> {
+        let mut w = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let Ok(event) = res else { return };
+            let is_log = event
+                .paths
+                .iter()
+                .any(|p| p.extension().and_then(|e| e.to_str()) == Some("log"));
+            if is_log
+                && matches!(
+                    event.kind,
+                    notify::EventKind::Modify(_) | notify::EventKind::Create(_)
+                )
+            {
+                let _ = tx.send(());
+            }
+        })?;
+        w.watch(&dir, RecursiveMode::NonRecursive)?;
+        Ok(w)
+    })();
+    let watcher = match watcher {
+        Ok(w) => w,
+        Err(e) => {
+            log::warn!("long-command notifications disabled: {e}");
+            return;
+        }
+    };
+
+    let spawned = std::thread::Builder::new()
+        .name("long-command-notifier".into())
+        .spawn(move || {
+            let _watcher = watcher; // alive for the thread's lifetime
+            // Records already on disk the first time we hear about a shell are
+            // history, not just-finished commands.
+            let mut seen: HashMap<u32, usize> = HashMap::new();
+            while rx.recv().is_ok() {
+                while rx.try_recv().is_ok() {} // collapse a burst
+                let (threshold, focused, active_pid, pids, fresh) = {
+                    let Ok(s) = shared.lock() else { return };
+                    let fresh = s
+                        .last_update
+                        .is_some_and(|t| t.elapsed() < Duration::from_secs(2));
+                    (
+                        s.threshold_secs,
+                        s.focused,
+                        s.active_pid,
+                        s.live_pids.clone(),
+                        fresh,
+                    )
+                };
+                if threshold == 0 {
+                    continue;
+                }
+                let threshold = Duration::from_secs(threshold);
+                for (pid, initial_baseline) in pids {
+                    let records = read_log_records(pid);
+                    let baseline = *seen.entry(pid).or_insert(initial_baseline);
+                    if records.len() <= baseline {
+                        continue;
+                    }
+                    let watching_here = fresh && focused && active_pid == Some(pid);
+                    for rec in &records[baseline..] {
+                        if !watching_here && rec.duration.is_some_and(|d| d >= threshold) {
+                            notify_command_finished(rec);
+                        }
+                    }
+                    seen.insert(pid, records.len());
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        log::warn!("long-command notifications disabled: {e}");
+    }
+}
+
+/// All parsable records in `<pid>.log`. Empty if the file is missing.
+fn read_log_records(pid: u32) -> Vec<crate::history::CommandRecord> {
+    let Some(path) = crate::history::history_dir().map(|d| d.join(format!("{pid}.log"))) else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(crate::history::CommandRecord::parse_line)
+        .collect()
+}
+
+fn count_log_records(pid: u32) -> usize {
+    read_log_records(pid).len()
+}
+
+/// `"6m 12s"`, `"45s"`, `"2h 3m"`.
+fn format_duration(secs: u64) -> String {
+    let (h, m, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+    if h > 0 {
+        format!("{h}h {m}m")
+    } else if m > 0 {
+        format!("{m}m {s}s")
+    } else {
+        format!("{s}s")
+    }
+}
+
+/// Post a desktop notification for a finished long command, off the UI thread.
+fn notify_command_finished(rec: &crate::history::CommandRecord) {
+    let dur = format_duration(rec.duration.map(|d| d.as_secs()).unwrap_or(0));
+    let mut cmd: String = rec.command.chars().take(120).collect();
+    if rec.command.chars().count() > 120 {
+        cmd.push('…');
+    }
+    let body = match rec.exit_code {
+        Some(c) if c != 0 => format!("{cmd}\nexit {c}"),
+        _ => cmd,
+    };
+    std::thread::spawn(move || {
+        if let Err(e) = notify_rust::Notification::new()
+            .appname("pomptty")
+            .summary(&format!("Command finished — {dur}"))
+            .body(&body)
+            .show()
+        {
+            log::warn!("could not post notification: {e}");
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FONT_MAX, FONT_MIN, closed_tab_slot, insert_slot, remap_index, snap_zoom};
+    use super::{
+        FONT_MAX, FONT_MIN, closed_tab_slot, format_duration, insert_slot, remap_index, snap_zoom,
+    };
+
+    #[test]
+    fn format_duration_reads_naturally() {
+        assert_eq!(format_duration(45), "45s");
+        assert_eq!(format_duration(372), "6m 12s");
+        assert_eq!(format_duration(7380), "2h 3m");
+    }
 
     #[test]
     fn insert_slot_appends_or_clamps() {

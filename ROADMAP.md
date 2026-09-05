@@ -276,9 +276,11 @@ bounces off it.
       neovim, helix, and tmux all want it
 - [ ] **bind a key to raw bytes / an escape sequence** — keybindings today
       only map to named app actions, not "send `\e[1;5D`" or arbitrary input
-- [ ] **desktop notification when a long command finishes** in an unfocused
-      tab/window (the shell hook already knows command + duration; distinct
-      from the bell)
+- [x] **desktop notification when a long command finishes** while pomptty is
+      unfocused, minimised, or on another tab. A background thread watches the
+      shell-hook logs (independent of the UI loop, so it fires while
+      minimised); `notifications.long_command_secs` config, default 300
+      (`0` off). Needs the shell-integration hook.
 - [ ] **multiple OS windows**, not just tabs — drag a tab out, `ctrl+shift+n`
 - [ ] **IME / dead-key / compose input** — matters for non-US layouts
       (umlauts, accents); verify egui's IME path works through the grid
