@@ -79,10 +79,7 @@ impl TerminalTab {
     ) -> Result<Self> {
         let shell = shell
             .or_else(|| std::env::var("SHELL").ok())
-            .unwrap_or_else(|| {
-                log::warn!("no shell configured and $SHELL is unset; falling back to /bin/bash");
-                "/bin/bash".to_owned()
-            });
+            .unwrap_or_else(default_shell);
 
         let backend = TerminalBackend::new(
             id,
@@ -137,6 +134,19 @@ impl TerminalTab {
     pub fn shell_cwd(&self) -> Option<String> {
         shell_cwd(self.backend.pty_id())
     }
+}
+
+/// The shell to spawn when nothing is configured and `$SHELL` is unset.
+#[cfg(windows)]
+fn default_shell() -> String {
+    log::warn!("no shell configured; falling back to powershell.exe");
+    "powershell.exe".to_owned()
+}
+
+#[cfg(not(windows))]
+fn default_shell() -> String {
+    log::warn!("no shell configured and $SHELL is unset; falling back to /bin/bash");
+    "/bin/bash".to_owned()
 }
 
 #[cfg(target_os = "linux")]

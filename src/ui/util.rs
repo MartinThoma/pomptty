@@ -1,8 +1,13 @@
 //! Small helpers shared across the chrome widgets.
 
-/// Rewrite a leading `$HOME` in an absolute path as `~`.
+/// Rewrite a leading home directory in an absolute path as `~`.
+///
+/// Uses `directories::BaseDirs` (same crate as the config/session/history
+/// paths elsewhere) rather than reading `$HOME` directly, since that's unset
+/// on native Windows — `BaseDirs` resolves the right thing on every platform.
 pub fn collapse_home(path: &str) -> String {
-    if let Ok(home) = std::env::var("HOME")
+    if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
+        && let Some(home) = home.to_str()
         && !home.is_empty()
     {
         if path == home {

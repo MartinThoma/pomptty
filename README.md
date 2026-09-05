@@ -3,16 +3,17 @@
 [![CI](https://github.com/MartinThoma/pomptty/actions/workflows/ci.yml/badge.svg)](https://github.com/MartinThoma/pomptty/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A minimal, Chrome-flavored terminal emulator for Linux: GPU-rendered, tabbed, and
-driven by a single JSON config file that reloads as you edit it.
+A minimal, Chrome-flavored terminal emulator: GPU-rendered, tabbed, and driven
+by a single JSON config file that reloads as you edit it.
 
 ![pomptty showing a shell session in a tab, rendered with the Solarized Dark theme](docs/screenshot.png)
 
 pomptty is written in Rust on [`egui`](https://github.com/emilk/egui) +
 [`egui_term`](https://github.com/Harzu/egui_term), which wraps
 [`alacritty_terminal`](https://github.com/alacritty/alacritty) for VT parsing and
-the PTY. Linux is the only supported platform today; macOS and Windows are on the
-[roadmap](ROADMAP.md).
+the PTY. Linux and Windows are supported; macOS is on the
+[roadmap](ROADMAP.md). A few things are still Linux-only — see
+[Known issues](ROADMAP.md#known-issues) in the roadmap.
 
 ## Contents
 
@@ -71,9 +72,10 @@ the PTY. Linux is the only supported platform today; macOS and Windows are on th
 
 - A current stable **Rust** toolchain (2024 edition). Install it with
   [rustup](https://rustup.rs/); a distro-packaged `cargo` is often too old.
-- A working GPU stack at run time: Vulkan or OpenGL, plus the X11 or Wayland
-  client libraries. pomptty loads these dynamically, and a typical desktop
-  already has them.
+- A working GPU stack at run time. On Linux: Vulkan or OpenGL, plus the X11 or
+  Wayland client libraries — pomptty loads these dynamically, and a typical
+  desktop already has them. On Windows: DirectX or Vulkan, already present on
+  any current install — no extra packages needed either way.
 
 ### Build and run
 
@@ -99,6 +101,7 @@ The `Makefile` prepends `~/.cargo/bin` to `PATH`, which is handy when the system
 | `make test` | run the test suite |
 | `make lint` | `rustfmt --check` + `clippy -D warnings` |
 | `make fmt` | format the source |
+| `make windows` | cross-compile a release `pomptty.exe` from Linux — needs the `mingw-w64` linker (`sudo apt install mingw-w64` on Debian/Ubuntu) installed once; the `x86_64-pc-windows-gnu` rustup target is added automatically |
 
 ## Usage
 

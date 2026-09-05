@@ -175,10 +175,12 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 - [ ] macOS support (window decorations, `/proc` cwd alternative, `state_dir`),
       distributed via a Homebrew formula/cask
-- [ ] Windows support (ConPTY already available via `alacritty_terminal`, no
-      PTY-layer work needed; default shell fallback, cwd/child-process
-      detection has no cheap Windows equivalent and may just stay
-      Linux/macOS-only), shipped as a plain prebuilt `.exe` — no installer
+- [x] Windows support: builds and runs via `alacritty_terminal`'s existing
+      ConPTY backend, defaults to `powershell.exe` when no shell is
+      configured, ships as a plain `.exe` (no installer). `windows-latest` CI
+      job guards against regressions. cwd/child-process detection and the
+      `Ctrl+R` history hook remain Linux-only for now — see
+      [Known issues](#known-issues).
 - [ ] `.deb` package: `cargo-deb` metadata in `Cargo.toml` + a `.desktop` file +
       an icon (none exists yet) + a release CI job; no `-dev` packages needed
       at build time (windowing/GPU libs are `dlopen`'d at runtime)
@@ -205,3 +207,10 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 - wgpu treats GPU errors as fatal; a texture-allocation failure panics the app
   (observed on an NVIDIA 940MX under VRAM pressure). Tracked in M8.
+- On Windows: `shell_cwd`/`has_running_child` (`src/terminal/mod.rs`) are
+  `/proc`-based and stay Linux-only stubs — no cheap Windows equivalent — so
+  cwd-scoped history, new-tab-inherits-cwd, and the busy-tab close-warning
+  silently no-op there instead of working. The `Ctrl+R` history overlay also
+  has no data to show on Windows yet: the shell-integration hook only covers
+  bash/zsh/fish, no PowerShell hook exists. Neither crashes anything — both
+  are graceful degradations, tracked in M8.

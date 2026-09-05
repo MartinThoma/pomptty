@@ -3,7 +3,7 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 
 CARGO ?= cargo
 
-.PHONY: build run release test lint fmt clean
+.PHONY: build run release test lint fmt clean windows
 
 ## Compile a debug build
 build:
@@ -33,3 +33,16 @@ fmt:
 ## Remove build artifacts
 clean:
 	$(CARGO) clean
+
+## Cross-compile a release .exe for Windows from Linux. One-time setup: the
+## mingw-w64 linker (`sudo apt install mingw-w64` on Debian/Ubuntu); the
+## x86_64-pc-windows-gnu rustup target is added automatically if missing.
+windows:
+	@command -v x86_64-w64-mingw32-gcc >/dev/null || { \
+		echo "error: mingw-w64 not found (needed to link the .exe)."; \
+		echo "  install it first, e.g.: sudo apt install mingw-w64"; \
+		exit 1; \
+	}
+	rustup target add x86_64-pc-windows-gnu
+	$(CARGO) build --release --target x86_64-pc-windows-gnu
+	@echo "Built target/x86_64-pc-windows-gnu/release/pomptty.exe"
