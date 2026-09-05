@@ -13,15 +13,17 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::terminal::TerminalTab;
+use crate::terminal::{TabColor, TerminalTab};
 
 /// One remembered tab.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SavedTab {
     pub cwd: Option<String>,
     /// A rename override, if the tab had one. The shell's own OSC title is
     /// not saved — it's transient and the restored shell will set its own.
     pub title: Option<String>,
+    pub color: Option<TabColor>,
 }
 
 /// The whole remembered session.
@@ -53,6 +55,7 @@ impl Session {
                 .map(|t| SavedTab {
                     cwd: t.shell_cwd(),
                     title: t.manual_title.clone(),
+                    color: t.color,
                 })
                 .collect(),
             active,
@@ -130,10 +133,12 @@ mod tests {
                 SavedTab {
                     cwd: Some("/tmp".to_owned()),
                     title: Some("build".to_owned()),
+                    color: Some(TabColor::Blue),
                 },
                 SavedTab {
                     cwd: None,
                     title: None,
+                    color: None,
                 },
             ],
             active: 1,
@@ -148,6 +153,20 @@ mod tests {
 
         session.save_to(&path).unwrap();
         assert_eq!(Session::load_from(&path), Some(session));
+    }
+
+    #[test]
+    fn old_session_file_without_color_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.json");
+        std::fs::write(
+            &path,
+            r#"{ "tabs": [ { "cwd": "/tmp", "title": null } ], "active": 0 }"#,
+        )
+        .unwrap();
+
+        let loaded = Session::load_from(&path).expect("a pre-color session.json still parses");
+        assert_eq!(loaded.tabs[0].color, None);
     }
 
     #[test]

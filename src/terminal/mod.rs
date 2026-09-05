@@ -6,9 +6,52 @@ use std::sync::mpsc::Sender;
 
 use anyhow::{Context, Result};
 use egui_term::{BackendCommand, BackendSettings, PtyEvent, TerminalBackend};
+use serde::{Deserialize, Serialize};
 
 /// Identifier for a tab. Monotonic; never reused within a run.
 pub type TabId = u64;
+
+/// A user-assigned tab color (context-menu "Color"), purely a chrome marker —
+/// fixed, vivid swatches independent of the active theme, like Chrome's
+/// tab-group colors, so a color reads the same regardless of palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabColor {
+    Grey,
+    Blue,
+    Red,
+    Yellow,
+    Green,
+    Pink,
+    Purple,
+    Cyan,
+}
+
+impl TabColor {
+    pub const ALL: [TabColor; 8] = [
+        TabColor::Grey,
+        TabColor::Blue,
+        TabColor::Red,
+        TabColor::Yellow,
+        TabColor::Green,
+        TabColor::Pink,
+        TabColor::Purple,
+        TabColor::Cyan,
+    ];
+
+    pub fn rgb(self) -> egui::Color32 {
+        match self {
+            TabColor::Grey => egui::Color32::from_rgb(0x9a, 0xa0, 0xa6),
+            TabColor::Blue => egui::Color32::from_rgb(0x1a, 0x73, 0xe8),
+            TabColor::Red => egui::Color32::from_rgb(0xd9, 0x30, 0x25),
+            TabColor::Yellow => egui::Color32::from_rgb(0xf9, 0xab, 0x00),
+            TabColor::Green => egui::Color32::from_rgb(0x18, 0x8f, 0x39),
+            TabColor::Pink => egui::Color32::from_rgb(0xd0, 0x1d, 0x84),
+            TabColor::Purple => egui::Color32::from_rgb(0x8f, 0x3d, 0xe8),
+            TabColor::Cyan => egui::Color32::from_rgb(0x12, 0xa4, 0xaf),
+        }
+    }
+}
 
 pub struct TerminalTab {
     pub id: TabId,
@@ -16,6 +59,9 @@ pub struct TerminalTab {
     pub title: String,
     /// A user-set name (context-menu "Rename"). Wins over `title` until cleared.
     pub manual_title: Option<String>,
+    /// A user-assigned color (context-menu "Color"), shown as a stripe on the
+    /// tab. Purely cosmetic.
+    pub color: Option<TabColor>,
     pub backend: TerminalBackend,
 }
 
@@ -51,6 +97,7 @@ impl TerminalTab {
             id,
             title: format!("Terminal {id}"),
             manual_title: None,
+            color: None,
             backend,
         })
     }
@@ -167,5 +214,20 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert_eq!(parse_stat_ppid_state("not a stat line"), None);
+    }
+}
+
+#[cfg(test)]
+mod tab_color_tests {
+    use super::TabColor;
+
+    #[test]
+    fn every_swatch_is_distinct() {
+        let rgbs: Vec<_> = TabColor::ALL.iter().map(|c| c.rgb()).collect();
+        for (i, a) in rgbs.iter().enumerate() {
+            for (j, b) in rgbs.iter().enumerate() {
+                assert!(i == j || a != b, "duplicate swatch: {:?}", TabColor::ALL[i]);
+            }
+        }
     }
 }

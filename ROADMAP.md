@@ -145,7 +145,11 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
       reopen), recently-closed list (right-click a tab → "Reopen closed")
 - [x] tab search (`ctrl+shift+a`, fuzzy)
 - [x] tab context menu: rename, duplicate, close others
-- [ ] tab groups / colors
+- [x] tab colors: right-click a tab → Color → one of 8 fixed swatches (or
+      None); survives duplicate, reopen-closed, and session restore
+- [ ] tab groups (a named cluster of adjacent tabs that collapses/expands as
+      one unit) — colors alone cover "tell tabs apart at a glance"; grouping
+      is a bigger, separate feature
 - [x] session restore: reopen tabs, directories, order, active tab and renames
       after quit / crash (`session.json`, periodic save + `on_exit`,
       `session.restore` config gate); scrollback replay not included

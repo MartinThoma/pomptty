@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::config::keybindings::{Action, Chord};
 use crate::history::log_store::LogStore;
 use crate::session::{Session, restore_active};
-use crate::terminal::{TabId, TerminalTab};
+use crate::terminal::{TabColor, TabId, TerminalTab};
 use crate::ui::chrome::{ChromeAction, TabStrip, TabView};
 use crate::ui::history_overlay::{HistoryOutcome, HistoryOverlay};
 use crate::ui::omnibox::{OmniboxOutcome, OmniboxOverlay};
@@ -43,6 +43,7 @@ struct ClosedTab {
     /// otherwise the shell-set title.
     title: String,
     cwd: Option<String>,
+    color: Option<TabColor>,
     /// The slot it sat in, so reopening restores its position.
     index: usize,
 }
@@ -153,6 +154,7 @@ impl PompttyApp {
             ) {
                 Ok(mut tab) => {
                     tab.manual_title = saved.title.clone();
+                    tab.color = saved.color;
                     tabs.push(tab);
                     next_tab_id += 1;
                 }
@@ -308,18 +310,19 @@ impl PompttyApp {
             .get(self.active)
             .and_then(|t| t.shell_cwd())
             .map(PathBuf::from);
-        self.spawn_tab_at(ctx, None, cwd, None);
+        self.spawn_tab_at(ctx, None, cwd, None, None);
     }
 
     /// Open a new tab and switch to it. `index` places it at that slot
-    /// (clamped to the tab count; `None` appends). `manual_title`, if given, is
-    /// applied as a rename override — used by duplicate / reopen-closed.
+    /// (clamped to the tab count; `None` appends). `manual_title`/`color`, if
+    /// given, are applied to the new tab — used by duplicate / reopen-closed.
     fn spawn_tab_at(
         &mut self,
         ctx: &egui::Context,
         index: Option<usize>,
         cwd: Option<PathBuf>,
         manual_title: Option<String>,
+        color: Option<TabColor>,
     ) {
         match TerminalTab::new(
             self.next_tab_id,
@@ -331,6 +334,7 @@ impl PompttyApp {
         ) {
             Ok(mut tab) => {
                 tab.manual_title = manual_title;
+                tab.color = color;
                 log::info!("opened tab {}", tab.id);
                 let at = insert_slot(index, self.tabs.len());
                 self.tabs.insert(at, tab);
@@ -345,9 +349,13 @@ impl PompttyApp {
     /// open a plain new tab when nothing has been closed.
     fn reopen_tab(&mut self, ctx: &egui::Context) {
         match self.closed_tabs.pop() {
-            Some(c) => {
-                self.spawn_tab_at(ctx, Some(c.index), c.cwd.map(PathBuf::from), Some(c.title))
-            }
+            Some(c) => self.spawn_tab_at(
+                ctx,
+                Some(c.index),
+                c.cwd.map(PathBuf::from),
+                Some(c.title),
+                c.color,
+            ),
             None => self.spawn_tab(ctx),
         }
     }
@@ -359,17 +367,24 @@ impl PompttyApp {
             return;
         };
         let c = self.closed_tabs.remove(slot);
-        self.spawn_tab_at(ctx, Some(c.index), c.cwd.map(PathBuf::from), Some(c.title));
+        self.spawn_tab_at(
+            ctx,
+            Some(c.index),
+            c.cwd.map(PathBuf::from),
+            Some(c.title),
+            c.color,
+        );
     }
 
-    /// Open a copy of tab `idx` (same directory and title) right after it.
+    /// Open a copy of tab `idx` (same directory, title and color) right after it.
     fn duplicate_tab(&mut self, ctx: &egui::Context, idx: usize) {
         let Some(tab) = self.tabs.get(idx) else {
             return;
         };
         let cwd = tab.shell_cwd().map(PathBuf::from);
         let title = tab.manual_title.clone();
-        self.spawn_tab_at(ctx, Some(idx + 1), cwd, title);
+        let color = tab.color;
+        self.spawn_tab_at(ctx, Some(idx + 1), cwd, title, color);
     }
 
     /// Close every tab except `idx`, leaving any with a running child alone.
@@ -428,9 +443,11 @@ impl PompttyApp {
         }
         let title = self.tabs[idx].display_title().to_owned();
         let cwd = self.tabs[idx].shell_cwd();
+        let color = self.tabs[idx].color;
         self.closed_tabs.push(ClosedTab {
             title,
             cwd,
+            color,
             index: idx,
         });
         if self.closed_tabs.len() > CLOSED_TABS_CAP {
@@ -882,14 +899,18 @@ impl eframe::App for PompttyApp {
             resize_edges(ui, &ctx);
         }
 
-        let tab_meta: Vec<(TabId, String)> = self
+        let tab_meta: Vec<(TabId, String, Option<TabColor>)> = self
             .tabs
             .iter()
-            .map(|t| (t.id, t.display_title().to_owned()))
+            .map(|t| (t.id, t.display_title().to_owned(), t.color))
             .collect();
         let tabs: Vec<TabView<'_>> = tab_meta
             .iter()
-            .map(|(id, title)| TabView { id: *id, title })
+            .map(|(id, title, color)| TabView {
+                id: *id,
+                title,
+                color: *color,
+            })
             .collect();
         let closed_titles: Vec<&str> = self
             .closed_tabs
@@ -927,6 +948,11 @@ impl eframe::App for PompttyApp {
             ChromeAction::DuplicateTab(i) => self.duplicate_tab(&ctx, i),
             ChromeAction::CloseOtherTabs(i) => self.close_other_tabs(i, &ctx),
             ChromeAction::ReopenClosedTab(k) => self.reopen_closed_tab(&ctx, k),
+            ChromeAction::SetTabColor(i, color) => {
+                if let Some(tab) = self.tabs.get_mut(i) {
+                    tab.color = color;
+                }
+            }
             ChromeAction::OpenSearch => self.open_history_search(),
             ChromeAction::Minimize => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));

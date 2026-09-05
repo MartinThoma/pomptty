@@ -37,7 +37,8 @@ the PTY. Linux is the only supported platform today; macOS and Windows are on th
   active tab, and a new tab opens in the active tab's working directory.
   <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens the last closed tab,
   <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> opens a fuzzy tab switcher, and
-  right-clicking a tab gives rename / duplicate / close-others / reopen-closed.
+  right-clicking a tab gives rename / duplicate / close-others / reopen-closed
+  / color.
 - **Session restore** — quitting (or crashing) and relaunching reopens the same
   tabs, in the same directories and order, with the same active tab and any
   renames. On by default; turn it off with `"session": { "restore": false }`.
@@ -132,8 +133,8 @@ the file, and binding a chord to `"disabled"` removes a default
 - Click a tab to focus it; click `×` or middle-click to close it; click `+` to
   open a new one.
 - Drag a tab sideways to reorder it.
-- Right-click a tab for rename, duplicate, close others, and a "reopen closed"
-  submenu.
+- Right-click a tab for rename, duplicate, close others, a "reopen closed"
+  submenu, and a color (a stripe on the tab — 8 fixed swatches, or "None").
 - Click and drag inside the terminal to select; selected text is available to
   copy.
 

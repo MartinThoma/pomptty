@@ -2,7 +2,7 @@
 
 use egui::{Color32, CornerRadius, Id, Rect, Sense, Stroke, Vec2, pos2, vec2};
 
-use crate::terminal::TabId;
+use crate::terminal::{TabColor, TabId};
 use crate::ui::style::{Surfaces, mix};
 
 /// What the user asked the chrome to do this frame.
@@ -25,6 +25,8 @@ pub enum ChromeAction {
     CloseOtherTabs(usize),
     /// Context menu: reopen the closed tab at position `k` in the recent list.
     ReopenClosedTab(usize),
+    /// Context menu: set (or clear, if `None`) tab `i`'s color.
+    SetTabColor(usize, Option<TabColor>),
     /// The `Ctrl+R` search affordance was clicked.
     OpenSearch,
     /// Custom-decoration window controls (only when `window_controls`).
@@ -40,6 +42,7 @@ pub enum ChromeAction {
 pub struct TabView<'a> {
     pub id: TabId,
     pub title: &'a str,
+    pub color: Option<TabColor>,
 }
 
 pub struct TabStrip<'a> {
@@ -387,6 +390,7 @@ fn tab_row(
             ui,
             s,
             tab.title,
+            tab.color,
             i == active,
             enters[i],
             r,
@@ -433,6 +437,26 @@ fn tab_row(
                     }
                 });
             }
+            ui.separator();
+            ui.menu_button("Color", |ui| {
+                ui.horizontal(|ui| {
+                    for color in TabColor::ALL {
+                        let swatch = egui::Button::new("")
+                            .min_size(Vec2::splat(18.0))
+                            .fill(color.rgb())
+                            .corner_radius(9);
+                        if ui.add(swatch).clicked() {
+                            action = ChromeAction::SetTabColor(i, Some(color));
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
+                if ui.button("None").clicked() {
+                    action = ChromeAction::SetTabColor(i, None);
+                    ui.close();
+                }
+            });
         });
 
         if i == active {
@@ -445,6 +469,7 @@ fn tab_row(
             ui,
             s,
             tabs[i].title,
+            tabs[i].color,
             i == active,
             enters[i],
             rects[i],
@@ -466,6 +491,7 @@ fn paint_tab(
     ui: &egui::Ui,
     s: &Surfaces,
     title: &str,
+    color: Option<TabColor>,
     selected: bool,
     enter: f32,
     rect: Rect,
@@ -499,6 +525,16 @@ fn paint_tab(
     };
     ui.painter()
         .rect_filled(rect, rounding, fill.gamma_multiply(a));
+
+    if let Some(color) = color {
+        // A thin colored stripe along the top edge, capped by the same
+        // rounding as the tab so it reads as one shape.
+        ui.painter().rect_filled(
+            Rect::from_min_max(rect.left_top(), pos2(rect.right(), rect.top() + 2.5)),
+            rounding,
+            color.rgb().gamma_multiply(a),
+        );
+    }
 
     if !dragging && !selected && !hovered {
         // Faint divider between resting tabs.
