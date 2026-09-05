@@ -173,8 +173,17 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 ## M8 — platform & robustness
 
-- [ ] macOS support (window decorations, `/proc` cwd alternative, `state_dir`)
-- [ ] Windows support (ConPTY via `alacritty_terminal`)
+- [ ] macOS support (window decorations, `/proc` cwd alternative, `state_dir`),
+      distributed via a Homebrew formula/cask
+- [ ] Windows support (ConPTY already available via `alacritty_terminal`, no
+      PTY-layer work needed; default shell fallback, cwd/child-process
+      detection has no cheap Windows equivalent and may just stay
+      Linux/macOS-only), shipped as a plain prebuilt `.exe` — no installer
+- [ ] `.deb` package: `cargo-deb` metadata in `Cargo.toml` + a `.desktop` file +
+      an icon (none exists yet) + a release CI job; no `-dev` packages needed
+      at build time (windowing/GPU libs are `dlopen`'d at runtime)
+- [ ] `.rpm` package: same shape via `cargo-generate-rpm`, mostly duplicate
+      effort once the `.deb` metadata (desktop file, icon) exists
 - [ ] non-fatal wgpu error handling + GPU / backend fallback (OOM panic on a 2 GB GPU)
 
 ## Later / polish
