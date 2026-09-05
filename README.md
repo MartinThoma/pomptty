@@ -151,6 +151,8 @@ the file, and binding a chord to `"disabled"` removes a default
 | `tab-search` | `ctrl+shift+a` | fuzzy switcher over the open tabs |
 | `history-search` | `ctrl+r` | opens the fuzzy history overlay (see [Shell integration](#shell-integration)); falls through to the shell when `history.enabled` is `false` |
 | `omnibox` | `ctrl+shift+p` | command palette: actions, tabs, history and recent directories in one ranked list |
+| `window-maximize` / `window-restore` | — | also in the palette as "View: Maximize / Restore Window" |
+| `window-left-half` / `window-right-half` | — | un-maximize and tile the window to that half of the screen; "View: Move to Left / Right Half" |
 | `disabled` | — | suppresses a default binding |
 
 ### Mouse

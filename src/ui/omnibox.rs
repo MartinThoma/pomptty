@@ -37,6 +37,10 @@ const PALETTE_ACTIONS: &[(&str, Action)] = &[
     ("Reset Font Size", Action::FontReset),
     ("Scroll to Top", Action::ScrollToTop),
     ("Scroll to Bottom", Action::ScrollToBottom),
+    ("View: Maximize Window", Action::WindowMaximize),
+    ("View: Restore Window", Action::WindowRestore),
+    ("View: Move to Left Half", Action::WindowLeftHalf),
+    ("View: Move to Right Half", Action::WindowRightHalf),
 ];
 
 /// What the palette decided this frame.

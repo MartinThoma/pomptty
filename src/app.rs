@@ -1101,10 +1101,35 @@ impl PompttyApp {
             Action::TabSearch => self.open_tab_search(),
             Action::HistorySearch => self.open_history_search(),
             Action::Omnibox => self.open_omnibox(),
+            Action::WindowMaximize => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            }
+            Action::WindowRestore => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+            }
+            Action::WindowLeftHalf | Action::WindowRightHalf => {
+                self.tile_window(ctx, action == Action::WindowRightHalf);
+            }
             // Inert here: handled by the terminal widget, or filtered out before
             // dispatch (see `Action::is_active` and `KeyBindings::compile`).
             Action::Copy | Action::Paste | Action::Disabled => {}
         }
+    }
+
+    /// Un-maximize and snap the window to the left or right half of its
+    /// monitor. A no-op if egui doesn't know the monitor size (some X11 WMs).
+    fn tile_window(&self, ctx: &egui::Context, right: bool) {
+        let Some(mon) = ctx.input(|i| i.viewport().monitor_size) else {
+            return;
+        };
+        if mon.x < 2.0 || mon.y < 2.0 {
+            return;
+        }
+        let half = egui::vec2((mon.x / 2.0).floor(), mon.y);
+        let pos = egui::pos2(if right { mon.x - half.x } else { 0.0 }, 0.0);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(half));
     }
 }
 

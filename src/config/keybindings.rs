@@ -47,6 +47,14 @@ pub enum Action {
     /// Open the command palette: one input over actions, tabs, history and
     /// recent directories.
     Omnibox,
+    /// Maximize the window.
+    WindowMaximize,
+    /// Restore the window to its pre-maximize size.
+    WindowRestore,
+    /// Un-maximize and tile the window to the left half of the screen.
+    WindowLeftHalf,
+    /// Un-maximize and tile the window to the right half of the screen.
+    WindowRightHalf,
     /// Turn a default binding off. Put `"<chord>": "disabled"` in the config to
     /// suppress a shortcut that would otherwise come from the defaults.
     Disabled,
@@ -75,6 +83,10 @@ impl Action {
             Action::GotoTab(n) => format!("goto-tab-{n}").into(),
             Action::HistorySearch => "history-search".into(),
             Action::Omnibox => "omnibox".into(),
+            Action::WindowMaximize => "window-maximize".into(),
+            Action::WindowRestore => "window-restore".into(),
+            Action::WindowLeftHalf => "window-left-half".into(),
+            Action::WindowRightHalf => "window-right-half".into(),
             Action::Disabled => "disabled".into(),
         }
     }
@@ -100,6 +112,10 @@ impl Action {
             "tab-search" => Action::TabSearch,
             "history-search" => Action::HistorySearch,
             "omnibox" => Action::Omnibox,
+            "window-maximize" => Action::WindowMaximize,
+            "window-restore" => Action::WindowRestore,
+            "window-left-half" => Action::WindowLeftHalf,
+            "window-right-half" => Action::WindowRightHalf,
             "disabled" => Action::Disabled,
             other => Action::GotoTab(other.strip_prefix("goto-tab-")?.parse().ok()?),
         })
@@ -358,6 +374,8 @@ mod tests {
             Action::Omnibox,
             Action::FontIncrease,
             Action::GotoTab(3),
+            Action::WindowMaximize,
+            Action::WindowLeftHalf,
             Action::Disabled,
         ] {
             let json = serde_json::to_string(&a).unwrap();
