@@ -9,6 +9,12 @@
 //! appended to the fallback chain so powerline prompts and devicon themes render
 //! their private-use glyphs instead of boxes. Nothing in egui's default chain
 //! covers that range.
+//!
+//! Scanning the system font database (`fontdb::load_system_fonts`) costs
+//! ~100 ms, so — when `font_family` is not an installed-family name that needs
+//! it up front — the Nerd-font lookup runs on a background thread and the
+//! fallback chain is patched in with a second `ctx.set_fonts` once it's ready.
+//! Icon glyphs render as tofu for the first frames, then snap in.
 
 use std::sync::{Arc, OnceLock};
 
@@ -35,14 +41,48 @@ pub struct FontVariants {
     pub bold_italic: FontId,
 }
 
-/// The system font database, scanned once per process (config reloads reuse it).
+/// The system font database, scanned once per process (config reloads reuse
+/// it). `load_system_fonts` costs ~100 ms, so most launches hit it only on
+/// the background thread spawned by [`apply`].
+static DB: OnceLock<Database> = OnceLock::new();
+
 fn font_db() -> &'static Database {
-    static DB: OnceLock<Database> = OnceLock::new();
     DB.get_or_init(|| {
         let mut db = Database::new();
         db.load_system_fonts();
         db
     })
+}
+
+/// The chosen Nerd / Powerline fallback font, resolved once. `None` inside
+/// means "scanned, nothing suitable installed".
+static SYMBOL: OnceLock<Option<SymbolFont>> = OnceLock::new();
+
+struct SymbolFont {
+    name: String,
+    bytes: Vec<u8>,
+    index: u32,
+}
+
+/// Append the symbol font to the `Monospace` / `Proportional` fallback chains.
+/// Real glyphs and emoji still win — only the private-use icon range falls
+/// through to here.
+fn append_symbol(fonts: &mut FontDefinitions, sym: &SymbolFont) {
+    fonts.font_data.insert(
+        SYMBOL_FONT.to_owned(),
+        Arc::new(FontData {
+            font: sym.bytes.clone().into(),
+            index: sym.index,
+            tweak: FontTweak::default(),
+        }),
+    );
+    for family in [FontFamily::Monospace, FontFamily::Proportional] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push(SYMBOL_FONT.to_owned());
+    }
 }
 
 /// Apply the configured font to the egui context, returning the regular /
@@ -121,32 +161,51 @@ pub fn apply(ctx: &egui::Context, config: &Config) -> FontVariants {
         }
     }
 
-    match find_symbol_font(font_db()) {
-        Some((name, bytes, index)) => {
-            fonts.font_data.insert(
-                SYMBOL_FONT.to_owned(),
-                Arc::new(FontData {
-                    font: bytes.into(),
-                    index,
-                    tweak: FontTweak::default(),
-                }),
-            );
-            // Append: real glyphs and emoji still win; only the private-use
-            // icon range falls through to here.
-            for family in [FontFamily::Monospace, FontFamily::Proportional] {
-                fonts
-                    .families
-                    .entry(family)
-                    .or_default()
-                    .push(SYMBOL_FONT.to_owned());
+    match SYMBOL.get() {
+        // Already scanned (a config reload, or `font_family` needed the db) —
+        // patch the fallback in synchronously.
+        Some(sym) => {
+            if let Some(sym) = sym {
+                append_symbol(&mut fonts, sym);
             }
-            log::info!("glyph fallback: {name:?}");
+            ctx.set_fonts(fonts);
+        }
+        // First launch: show text now, find the Nerd font on a thread.
+        None => {
+            ctx.set_fonts(fonts.clone());
+            spawn_symbol_scan(ctx.clone(), fonts);
+        }
+    }
+
+    variants
+}
+
+/// Scan the system fonts for a Nerd / Powerline fallback off the UI thread,
+/// then re-apply the font set with it appended and ask for a repaint. A
+/// failed thread spawn just leaves icon glyphs as tofu (near-impossible in
+/// practice).
+fn spawn_symbol_scan(ctx: egui::Context, fonts: FontDefinitions) {
+    let spawned = std::thread::Builder::new()
+        .name("pomptty-font-scan".to_owned())
+        .spawn(move || resolve_and_apply_symbol(&ctx, fonts));
+    if let Err(e) = spawned {
+        log::warn!("could not spawn the font-scan thread: {e}");
+    }
+}
+
+fn resolve_and_apply_symbol(ctx: &egui::Context, mut fonts: FontDefinitions) {
+    let sym = SYMBOL.get_or_init(|| {
+        find_symbol_font(font_db()).map(|(name, bytes, index)| SymbolFont { name, bytes, index })
+    });
+    match sym {
+        Some(sym) => {
+            append_symbol(&mut fonts, sym);
+            log::info!("glyph fallback: {:?}", sym.name);
+            ctx.set_fonts(fonts);
+            ctx.request_repaint();
         }
         None => log::debug!("no Nerd/Powerline font found; icon glyphs may render as boxes"),
     }
-
-    ctx.set_fonts(fonts);
-    variants
 }
 
 /// Pick an installed Nerd / Powerline font for the private-use icon range,

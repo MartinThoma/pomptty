@@ -360,6 +360,10 @@ table-stakes fix.
 - [ ] sixel / kitty graphics protocol (inline images)
 - [ ] AI: opt-in, off by default, bring-your-own-key, no data leaves the machine
       without an explicit action
+- [ ] startup latency: the system-font scan (~100 ms) is now deferred to a
+      background thread; the remaining ~300 ms to first paint is wgpu
+      device/surface creation (~210 ms) + egui's first font-atlas / pipeline
+      build (~85 ms), both largely graphics-stack costs
 
 ## Known issues
 
