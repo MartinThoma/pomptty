@@ -3,7 +3,7 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 
 CARGO ?= cargo
 
-.PHONY: build run release test lint fmt clean windows deb rpm
+.PHONY: build run release test lint fmt clean windows deb rpm man icons
 
 ## Compile a debug build
 build:
@@ -61,3 +61,16 @@ rpm:
 	strip -s target/release/pomptty
 	$(CARGO) generate-rpm
 	@echo "Built target/generate-rpm/*.rpm"
+
+## Preview the man page.
+man:
+	man -l packaging/pomptty.1
+
+## Re-rasterize packaging/pomptty.svg into the hicolor PNG sizes.
+icons:
+	@command -v rsvg-convert >/dev/null || { echo "error: rsvg-convert not found (librsvg2-bin)"; exit 1; }
+	@for s in 16 32 48 64 128 256; do \
+		mkdir -p packaging/icons/$${s}x$${s}; \
+		rsvg-convert -w $$s -h $$s packaging/pomptty.svg -o packaging/icons/$${s}x$${s}/pomptty.png; \
+	done
+	@echo "Wrote packaging/icons/*/pomptty.png"

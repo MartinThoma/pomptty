@@ -208,34 +208,42 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 ## M8 — platform & robustness
 
-- [ ] macOS support (window decorations, `/proc` cwd alternative, `state_dir`),
-      distributed via a Homebrew formula/cask. `macos-latest` CI job now
-      builds + tests on real Apple hardware (can't be cross-compiled from
-      Linux — the SDK is proprietary, unlike `mingw-w64` for Windows), but
-      nothing macOS-specific has been tuned or run interactively yet
+- [~] macOS support: builds + tests on the `macos-latest` CI job (can't be
+      cross-compiled from Linux — the SDK is proprietary). Process detection
+      (cwd / busy-tab / superuser warning) now works via `ps` + `lsof`
+      instead of `/proc` (`src/terminal/mod.rs`); `directories` already
+      resolves `state_dir` to `~/Library/Application Support`; the frameless
+      window builds unchanged. Still open: interactive tuning on real
+      hardware, and a Homebrew formula/cask
 - [x] Windows support: builds and runs via `alacritty_terminal`'s existing
       ConPTY backend, defaults to `powershell.exe` when no shell is
       configured, ships as a plain `.exe` (no installer). `windows-latest` CI
       job guards against regressions. cwd/child-process detection and the
-      `Ctrl+R` history hook remain Linux-only for now — see
+      `Ctrl+R` history hook remain Linux/macOS-only for now — see
       [Known issues](#known-issues).
-- [x] `.deb` package: `cargo-deb` metadata in `Cargo.toml`, a `.desktop` file
-      + placeholder icon under `packaging/` ([Known issues](#known-issues)),
-      `make deb` for a local build, CI job uploads it as a workflow artifact
-      on every push/PR/manual run. Lints clean under `lintian` (bar two minor
-      style warnings — synopsis starts with "A", no man page yet)
+- [x] `.deb` package: `cargo-deb` metadata in `Cargo.toml`, a `.desktop`
+      file, a man page and hicolor icons (16–256 + scalable) under
+      `packaging/`, `make deb` for a local build, CI job builds + `lintian`s
+      it and uploads it as a workflow artifact. Clean under `lintian` (bar
+      the inherent `initial-upload-closes-no-bugs` info)
 - [x] `.rpm` package: same `packaging/` assets via `cargo-generate-rpm`
       (pure Rust, no `rpmbuild` dependency), `make rpm` locally, same CI
       artifact treatment. Not yet content-verified as deeply as the `.deb`
       (no `rpm`/`rpm2cpio` available to inspect it here — `file` confirms a
       valid RPM, `cargo generate-rpm` built it from the same asset paths
       already verified via the `.deb`)
-- [ ] real GitHub Releases with `.deb`/`.rpm`/`.exe` attached on a tag push —
-      needs a version-tagging/changelog policy this repo doesn't have yet;
-      `workflow_dispatch` artifacts cover "get a build right now" meanwhile
-- [ ] a proper man page (`no-manual-page`, flagged by `lintian`)
-- [ ] a considered app icon/logo — `packaging/pomptty.svg` is a functional
-      placeholder (Solarized-Dark terminal-window glyph), not real branding
+- [x] real GitHub Releases: `.github/workflows/release.yml` fires on a
+      `vX.Y.Z` tag, builds the `.deb` / `.rpm` / Windows `.exe` / macOS
+      tarball and publishes a Release with the `CHANGELOG.md` section as the
+      notes. `CHANGELOG.md` (Keep a Changelog) + `RELEASING.md` document the
+      version policy; a `verify` job rejects a tag that doesn't match
+      `Cargo.toml` / the changelog
+- [x] a proper man page — `packaging/pomptty.1` (hand-written roff),
+      installed by both packages, clears the `no-manual-page` lint
+- [x] an app icon — `packaging/pomptty.svg` redrawn (Solarized tile, active
+      tab, `>` prompt + caret, readable at 16 px) and rasterized to the
+      hicolor PNG sizes. Not a full brand system, but no longer a rough
+      placeholder
 - [x] GPU adapter choice: pomptty now requests a low-power adapter by default
       (`PowerPreference::LowPower` in `src/main.rs`, `WGPU_POWER_PREF` still
       overrides) and logs the chosen GPU at startup — this alone avoids the
@@ -246,7 +254,7 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
       `#![deny(unsafe_code)]` on pomptty's own crate, and a red terminal
       outline + tab dot while the shell (or `sudo -s` / `su` / a long
       `sudo …` under it) runs as `root` — `security.superuser_warning`
-      config, Linux only. Still open: macOS/Windows privilege detection,
+      config, Linux and macOS. Still open: Windows privilege detection,
       dangerous-command heuristics
 - [ ] non-fatal wgpu error handling: making an actual mid-run wgpu error (the
       hard `panic!()` in `egui-wgpu`'s renderer when a buffer allocation
@@ -360,13 +368,13 @@ table-stakes fix.
   Mitigated by defaulting to a low-power adapter (see M8), so the
   VRAM-pressure trigger is much less likely, but a real fix needs an
   `egui-wgpu` fork. Tracked in M8.
-- On Windows: `shell_cwd`/`has_running_child` (`src/terminal/mod.rs`) are
-  `/proc`-based and stay Linux-only stubs — no cheap Windows equivalent — so
-  cwd-scoped history, new-tab-inherits-cwd, and the busy-tab close-warning
-  silently no-op there instead of working. The `Ctrl+R` history overlay also
-  has no data to show on Windows yet: the shell-integration hook only covers
-  bash/zsh/fish, no PowerShell hook exists. Neither crashes anything — both
-  are graceful degradations, tracked in M8.
-- The `.deb`/`.rpm` packages (`packaging/`) use a hand-drawn placeholder
-  icon and have no man page yet; the `.deb` maintainer/copyright metadata is
-  the repo owner's info baked in at packaging time. Tracked in M8.
+- On Windows: `shell_cwd`/`has_running_child` (`src/terminal/mod.rs`) have no
+  cheap equivalent and stay stubs — so cwd-scoped history,
+  new-tab-inherits-cwd, and the busy-tab close-warning silently no-op there
+  instead of working. The `Ctrl+R` history overlay also has no data on
+  Windows: the shell-integration hook only covers bash/zsh/fish, no
+  PowerShell hook exists. Neither crashes anything — graceful degradations,
+  tracked in M8. macOS uses `ps`/`lsof` for these and works, but has not been
+  exercised on real hardware yet.
+- The `.deb`/`.rpm` `maintainer`/`copyright` metadata is the repo owner's
+  info baked in at packaging time.

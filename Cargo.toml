@@ -7,7 +7,7 @@ members = [".", "vendor/egui_term"]
 name = "pomptty"
 version = "0.1.0"
 edition = "2024"
-description = "A minimal, Chrome-flavored terminal emulator"
+description = "Minimal, Chrome-flavored terminal emulator"
 license = "MIT"
 repository = "https://github.com/MartinThoma/pomptty"
 readme = "README.md"
@@ -56,7 +56,7 @@ opt-level = 3
 maintainer = "Martin Thoma <info@martin-thoma.de>"
 copyright = "2026, Martin Thoma <info@martin-thoma.de>"
 extended-description = """\
-A minimal, Chrome-flavored terminal emulator: GPU-rendered, tabbed, and \
+Minimal, Chrome-flavored terminal emulator: GPU-rendered, tabbed, and \
 driven by a single JSON config file that reloads as you edit it."""
 section = "x11"
 priority = "optional"
@@ -64,7 +64,14 @@ changelog = "packaging/changelog"
 assets = [
     ["target/release/pomptty", "usr/bin/", "755"],
     ["packaging/pomptty.desktop", "usr/share/applications/", "644"],
+    ["packaging/pomptty.1", "usr/share/man/man1/pomptty.1", "644"],
     ["packaging/pomptty.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["packaging/icons/16x16/pomptty.png", "usr/share/icons/hicolor/16x16/apps/pomptty.png", "644"],
+    ["packaging/icons/32x32/pomptty.png", "usr/share/icons/hicolor/32x32/apps/pomptty.png", "644"],
+    ["packaging/icons/48x48/pomptty.png", "usr/share/icons/hicolor/48x48/apps/pomptty.png", "644"],
+    ["packaging/icons/64x64/pomptty.png", "usr/share/icons/hicolor/64x64/apps/pomptty.png", "644"],
+    ["packaging/icons/128x128/pomptty.png", "usr/share/icons/hicolor/128x128/apps/pomptty.png", "644"],
+    ["packaging/icons/256x256/pomptty.png", "usr/share/icons/hicolor/256x256/apps/pomptty.png", "644"],
     ["README.md", "usr/share/doc/pomptty/README.md", "644"],
 ]
 
@@ -72,6 +79,13 @@ assets = [
 assets = [
     { source = "target/release/pomptty", dest = "/usr/bin/pomptty", mode = "755" },
     { source = "packaging/pomptty.desktop", dest = "/usr/share/applications/pomptty.desktop", mode = "644" },
+    { source = "packaging/pomptty.1", dest = "/usr/share/man/man1/pomptty.1", mode = "644", doc = true },
     { source = "packaging/pomptty.svg", dest = "/usr/share/icons/hicolor/scalable/apps/pomptty.svg", mode = "644" },
-    { source = "README.md", dest = "/usr/share/doc/pomptty/README.md", mode = "644" },
+    { source = "packaging/icons/16x16/pomptty.png", dest = "/usr/share/icons/hicolor/16x16/apps/pomptty.png", mode = "644" },
+    { source = "packaging/icons/32x32/pomptty.png", dest = "/usr/share/icons/hicolor/32x32/apps/pomptty.png", mode = "644" },
+    { source = "packaging/icons/48x48/pomptty.png", dest = "/usr/share/icons/hicolor/48x48/apps/pomptty.png", mode = "644" },
+    { source = "packaging/icons/64x64/pomptty.png", dest = "/usr/share/icons/hicolor/64x64/apps/pomptty.png", mode = "644" },
+    { source = "packaging/icons/128x128/pomptty.png", dest = "/usr/share/icons/hicolor/128x128/apps/pomptty.png", mode = "644" },
+    { source = "packaging/icons/256x256/pomptty.png", dest = "/usr/share/icons/hicolor/256x256/apps/pomptty.png", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/pomptty/README.md", mode = "644", doc = true },
 ]

@@ -64,7 +64,7 @@ pub struct TerminalTab {
     pub color: Option<TabColor>,
     /// Whether the shell — or something running under it (`sudo -s`, `su`, a
     /// long `sudo …`) — is `root`. Drives the red superuser warning. Refreshed
-    /// on a poll by the app; `false` off Linux.
+    /// on a poll by the app; `false` outside Linux / macOS.
     pub is_root: bool,
     pub backend: TerminalBackend,
 }
@@ -141,20 +141,21 @@ impl TerminalTab {
 
     /// Whether a process other than the shell itself is running in this tab
     /// (an editor, an `ssh` session, a build, …). Used to warn before closing
-    /// the tab. Linux-only; returns `false` where `/proc` is unavailable.
+    /// the tab. Linux (`/proc`) and macOS (`ps`); `false` elsewhere.
     pub fn has_running_child(&self) -> bool {
         has_child_process(self.backend.pty_id())
     }
 
-    /// The shell's current working directory, from `/proc/<pid>/cwd`. Used to
-    /// scope history search to "this directory". Linux-only; `None` elsewhere or
-    /// if the shell has exited.
+    /// The shell's current working directory. Used to scope history search to
+    /// "this directory". Linux (`/proc/<pid>/cwd`) and macOS (`lsof`); `None`
+    /// elsewhere or if the shell has exited.
     pub fn shell_cwd(&self) -> Option<String> {
         shell_cwd(self.backend.pty_id())
     }
 
     /// Re-check whether this tab is running anything as `root`. Cheap-ish (one
-    /// `/proc` scan); the app calls this on a slow poll, not every frame.
+    /// `/proc` scan on Linux, one `ps` on macOS); the app calls this on a slow
+    /// poll, not every frame.
     pub fn refresh_root_status(&mut self) {
         self.is_root = tab_runs_as_root(self.backend.pty_id());
     }
@@ -181,7 +182,7 @@ fn shell_cwd(shell_pid: u32) -> Option<String> {
         .map(str::to_owned)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn shell_cwd(_shell_pid: u32) -> Option<String> {
     None
 }
@@ -223,7 +224,7 @@ fn parse_stat_ppid_state(stat: &str) -> Option<(u32, char)> {
     Some((ppid, state))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn has_child_process(_shell_pid: u32) -> bool {
     false
 }
@@ -276,7 +277,7 @@ fn tab_runs_as_root(shell_pid: u32) -> bool {
     false
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn tab_runs_as_root(_shell_pid: u32) -> bool {
     false
 }
@@ -286,6 +287,96 @@ fn tab_runs_as_root(_shell_pid: u32) -> bool {
 fn status_effective_uid(status: &str) -> Option<u32> {
     let line = status.lines().find(|l| l.starts_with("Uid:"))?;
     line.split_whitespace().nth(2)?.parse().ok()
+}
+
+// ---- macOS: `ps` / `lsof` instead of `/proc` -------------------------------
+//
+// macOS has no `/proc`. `ps` and `lsof` are both in the base system, so these
+// spawn a subprocess rather than take a crate dependency (`libproc` would pull
+// `bindgen`). The functions are called on a slow poll / on demand, not per
+// frame. Verified by the parser unit test + the macOS CI build; not yet run on
+// real hardware.
+
+/// One row of `ps -Ao pid=,ppid=,uid=,state=`. Kept target-agnostic so its
+/// parser can be unit-tested everywhere.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PsRow {
+    pid: u32,
+    ppid: u32,
+    /// The real uid — `sudo -s` / `su` / a spawned `sudo <cmd>` all end up
+    /// with ruid 0, which is the intent of the Linux euid check.
+    uid: u32,
+    zombie: bool,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn parse_ps_table(output: &str) -> Vec<PsRow> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut f = line.split_whitespace();
+            Some(PsRow {
+                pid: f.next()?.parse().ok()?,
+                ppid: f.next()?.parse().ok()?,
+                uid: f.next()?.parse().ok()?,
+                zombie: f.next().is_some_and(|s| s.starts_with('Z')),
+            })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn mac_proc_table() -> Vec<PsRow> {
+    std::process::Command::new("/bin/ps")
+        .args(["-Ao", "pid=,ppid=,uid=,state="])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| parse_ps_table(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "macos")]
+fn shell_cwd(shell_pid: u32) -> Option<String> {
+    // `lsof -a -d cwd -p <pid> -Fn` prints `p<pid>` then `n<path>`, one per line.
+    let out = std::process::Command::new("/usr/sbin/lsof")
+        .args(["-a", "-d", "cwd", "-Fn", "-p", &shell_pid.to_string()])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|l| l.strip_prefix('n').map(str::to_owned))
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn has_child_process(shell_pid: u32) -> bool {
+    mac_proc_table()
+        .iter()
+        .any(|p| p.ppid == shell_pid && !p.zombie)
+}
+
+#[cfg(target_os = "macos")]
+fn tab_runs_as_root(shell_pid: u32) -> bool {
+    let table = mac_proc_table();
+    let mut stack = vec![shell_pid];
+    let mut seen = vec![shell_pid];
+    while let Some(pid) = stack.pop() {
+        if table.iter().any(|p| p.pid == pid && p.uid == 0) {
+            return true;
+        }
+        for p in &table {
+            if p.ppid == pid && !seen.contains(&p.pid) {
+                seen.push(p.pid);
+                stack.push(p.pid);
+            }
+        }
+    }
+    false
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -322,6 +413,47 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert_eq!(parse_stat_ppid_state("not a stat line"), None);
+    }
+}
+
+#[cfg(test)]
+mod ps_table_tests {
+    use super::{PsRow, parse_ps_table};
+
+    #[test]
+    fn parses_a_ps_table() {
+        // `ps -Ao pid=,ppid=,uid=,state=` output (leading spaces, varied cols).
+        let out = "    1     0     0 Ss\n  842   700   501 S\n  900   842     0 R+\n  931   900   501 Z\ngarbage line\n";
+        let rows = parse_ps_table(out);
+        assert_eq!(
+            rows,
+            vec![
+                PsRow {
+                    pid: 1,
+                    ppid: 0,
+                    uid: 0,
+                    zombie: false
+                },
+                PsRow {
+                    pid: 842,
+                    ppid: 700,
+                    uid: 501,
+                    zombie: false
+                },
+                PsRow {
+                    pid: 900,
+                    ppid: 842,
+                    uid: 0,
+                    zombie: false
+                },
+                PsRow {
+                    pid: 931,
+                    ppid: 900,
+                    uid: 501,
+                    zombie: true
+                },
+            ]
+        );
     }
 }
 

@@ -80,7 +80,7 @@ pub struct ClipboardConfig {
 pub struct SecurityConfig {
     /// Outline the terminal in red and mark the tab when the shell (or
     /// something under it — `sudo -s`, `su`, a long `sudo …`) is running as
-    /// `root`. `true` by default. Linux only.
+    /// `root`. `true` by default. Linux (`/proc`) and macOS (`ps`).
     pub superuser_warning: bool,
 }
 

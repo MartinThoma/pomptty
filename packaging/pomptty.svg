@@ -1,29 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- pomptty app icon: a Solarized Dark terminal window with a Chrome-style
-     tab strip and a ">_" prompt. A functional placeholder, not a polished
-     brand asset — easy to swap out later. -->
+<!-- pomptty app icon: a Solarized-Dark terminal tile with a Chrome-style
+     active tab and a green ">_" prompt. Kept simple so it still reads at
+     16 px. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
-    <clipPath id="body">
-      <rect x="8" y="8" width="240" height="240" rx="36" ry="36"/>
+    <clipPath id="tile">
+      <rect x="16" y="16" width="224" height="224" rx="44" ry="44"/>
     </clipPath>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0.16" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
   </defs>
 
-  <g clip-path="url(#body)">
-    <rect x="8" y="8" width="240" height="240" fill="#002b36"/>
+  <g clip-path="url(#tile)">
+    <rect x="16" y="16" width="224" height="224" fill="#002b36"/>
 
     <!-- tab strip -->
-    <rect x="8" y="8" width="240" height="56" fill="#073642"/>
-    <rect x="24" y="20" width="72" height="32" rx="8" ry="8" fill="#268bd2"/>
-    <rect x="104" y="24" width="56" height="24" rx="7" ry="7" fill="#0a4657"/>
-    <rect x="168" y="24" width="56" height="24" rx="7" ry="7" fill="#0a4657"/>
+    <rect x="16" y="16" width="224" height="60" fill="#073642"/>
+    <!-- active tab -->
+    <path d="M40 76 v-30 a12 12 0 0 1 12 -12 h56 a12 12 0 0 1 12 12 v30 z" fill="#268bd2"/>
+    <!-- inactive tab hint -->
+    <rect x="140" y="42" width="72" height="26" rx="8" fill="#0b4a5c"/>
 
-    <!-- window border -->
-    <rect x="8.5" y="8.5" width="239" height="239" rx="35.5" ry="35.5"
-          fill="none" stroke="#00212a" stroke-width="1"/>
+    <!-- prompt -->
+    <path d="M64 118 L108 150 L64 182" fill="none" stroke="#859900"
+          stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="126" y="150" width="66" height="20" rx="3" fill="#93a1a1"/>
+
+    <!-- top sheen for a little depth -->
+    <rect x="16" y="16" width="224" height="224" fill="url(#sheen)"/>
   </g>
 
-  <text x="34" y="182" font-family="DejaVu Sans Mono, Liberation Mono, monospace"
-        font-size="92" font-weight="bold" fill="#859900">&gt;</text>
-  <rect x="128" y="150" width="60" height="18" fill="#93a1a1"/>
+  <rect x="16.5" y="16.5" width="223" height="223" rx="43.5" ry="43.5"
+        fill="none" stroke="#00181f" stroke-width="1"/>
 </svg>

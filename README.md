@@ -84,6 +84,11 @@ the PTY. Linux and Windows are supported; macOS is on the
 
 ## Installation
 
+Tagged builds — a `.deb`, an `.rpm`, a Windows `.exe` and a macOS tarball —
+are attached to each
+[GitHub Release](https://github.com/MartinThoma/pomptty/releases). To build
+from source instead:
+
 ### Prerequisites
 
 - A current stable **Rust** toolchain (2024 edition). Install it with
@@ -126,6 +131,10 @@ The `Makefile` prepends `~/.cargo/bin` to `PATH`, which is handy when the system
 | `make windows` | cross-compile a release `pomptty.exe` from Linux — needs the `mingw-w64` linker (`sudo apt install mingw-w64` on Debian/Ubuntu) installed once; the `x86_64-pc-windows-gnu` rustup target is added automatically |
 | `make deb` | build a `.deb` package (`target/debian/*.deb`); installs `cargo-deb` if missing — no sudo needed |
 | `make rpm` | build an `.rpm` package (`target/generate-rpm/*.rpm`); installs `cargo-generate-rpm` if missing — no sudo needed |
+| `make man` | preview the man page (`packaging/pomptty.1`) |
+| `make icons` | re-rasterize the app icon from `packaging/pomptty.svg` |
+
+Cutting a release is a tag push — see [RELEASING.md](RELEASING.md).
 
 ## Usage
 
@@ -253,7 +262,7 @@ config.
 | `paste` | `confirm_multiline` (default `true`) — ask before pasting newline-containing text into a shell that hasn't enabled bracketed paste, where each line would run on arrival. |
 | `notifications` | `long_command_secs` (default `300`) — post a desktop notification when a command that ran at least this long finishes while pomptty is unfocused, minimised, or on another tab; `0` disables it. Needs the [shell integration](#shell-integration). |
 | `clipboard` | `osc52_read` (default `false`) — let terminal apps *read* the system clipboard via OSC 52 (`\e]52;c;?`); the *copy* direction is always allowed. Off by default, matching Alacritty. New tabs pick up a change. |
-| `security` | `superuser_warning` (default `true`) — red terminal outline + tab dot while the shell (or `sudo -s` / `su` / a long `sudo …` under it) is running as `root`. Linux only. |
+| `security` | `superuser_warning` (default `true`) — red terminal outline + tab dot while the shell (or `sudo -s` / `su` / a long `sudo …` under it) is running as `root`. Linux and macOS. |
 
 pomptty automatically adds an installed **Nerd Font / Powerline** font to the
 fallback chain, so powerline prompts and devicon themes render their icons rather

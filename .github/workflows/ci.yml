@@ -123,6 +123,15 @@ jobs:
       - name: Build .deb
         run: cargo deb
 
+      - name: Lint the .deb
+        run: |
+          sudo apt-get update && sudo apt-get install -y lintian
+          # Fail on real problems; the two infos below are inherent to a
+          # native, non-Debian-archive package and are expected.
+          lintian --fail-on error,warning \
+            --suppress-tags initial-upload-closes-no-bugs,no-changelog,debian-changelog-file-missing-or-wrong-name \
+            target/debian/*.deb
+
       - name: Build .rpm
         run: |
           cargo build --release --locked

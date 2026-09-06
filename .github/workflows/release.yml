@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: "Verify tag / version / changelog"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches Cargo.toml and CHANGELOG.md
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag v$tag does not match Cargo.toml version $crate"
+            exit 1
+          fi
+          if ! grep -q "^## \[$tag\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$tag]' section"
+            exit 1
+          fi
+          echo "ok: v$tag"
+
+  linux:
+    name: "Linux: .deb + .rpm"
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install packagers
+        run: cargo install cargo-deb cargo-generate-rpm --locked
+
+      - name: Build .deb
+        run: cargo deb
+
+      - name: Build .rpm
+        run: |
+          cargo build --release --locked
+          strip -s target/release/pomptty
+          cargo generate-rpm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
+          if-no-files-found: error
+
+  windows:
+    name: "Windows: .exe (cross)"
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - name: Build
+        run: cargo build --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Stage
+        run: cp target/x86_64-pc-windows-gnu/release/pomptty.exe "pomptty-${GITHUB_REF_NAME}-windows-x86_64.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: pomptty-*-windows-x86_64.exe
+          if-no-files-found: error
+
+  macos:
+    name: "macOS: binary"
+    runs-on: macos-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Stage
+        run: |
+          mkdir stage
+          cp target/release/pomptty stage/
+          cp README.md LICENSE packaging/pomptty.1 stage/
+          tar -C stage -czf "pomptty-${GITHUB_REF_NAME}-macos-$(uname -m).tar.gz" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-binary
+          path: pomptty-*-macos-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: "Publish GitHub Release"
+    runs-on: ubuntu-latest
+    needs: [linux, windows, macos]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Extract the changelog section
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          awk -v v="$tag" '
+            $0 ~ "^## \\[" v "\\]" {grab=1; next}
+            grab && /^## \[/ {exit}
+            grab {print}
+          ' CHANGELOG.md > release-notes.md
+          echo "--- release notes ---"; cat release-notes.md
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: dist/**
+          fail_on_unmatched_files: true

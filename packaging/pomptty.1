@@ -1,0 +1,129 @@
+.\" Manpage for pomptty.
+.TH POMPTTY 1 "2026" "pomptty 0.1.0" "User Commands"
+.SH NAME
+pomptty \- a minimal, Chrome\-flavored terminal emulator
+.SH SYNOPSIS
+.B pomptty
+.RI [ OPTION ]
+.SH DESCRIPTION
+.B pomptty
+is a GPU\-rendered, tabbed terminal emulator driven by a single JSON
+configuration file that reloads as it is edited. It uses
+.B alacritty_terminal
+for VT emulation and
+.B egui
+/
+.B wgpu
+for rendering.
+.PP
+Run with no arguments to open the terminal. The window has a Chrome\-style
+tab strip; new tabs inherit the active tab's working directory. A command
+palette
+.RB ( Ctrl+Shift+P )
+searches actions, tabs, shell history and recent directories in one list.
+.SH OPTIONS
+.TP
+.B \-\-print\-integration \fISHELL\fR
+Print the shell\-integration hook for \fISHELL\fR (one of
+.BR bash ", " zsh ", " fish )
+to standard output. Add it to your shell's rc file to enable the
+.B Ctrl+R
+history overlay and the long\-command desktop notification, e.g.
+.RS
+.PP
+.EX
+eval "$(pomptty \-\-print\-integration bash)"
+.EE
+.RE
+.TP
+.BR \-\-help ", " \-h
+Show a usage summary and exit.
+.TP
+.BR \-\-version ", " \-V
+Show the version and exit.
+.SH CONFIGURATION
+The configuration file is created with defaults on first run at
+.IR $XDG_CONFIG_HOME/pomptty/config.json
+(\fI~/.config/pomptty/config.json\fR on Linux,
+\fI~/Library/Application Support/pomptty/config.json\fR on macOS). A malformed
+file is reported and left untouched rather than overwritten. Edits are picked
+up live; \fBCtrl+Shift+R\fR forces a reload.
+.PP
+Top\-level keys include:
+.RS
+.TP
+.B font_family ", " font_size ", " bold_is_bright
+The terminal font (a file path or an installed family name), its size, and
+whether bold text uses the bright palette.
+.TP
+.B theme
+A builtin name
+.RB ( solarized\-dark ", " solarized\-light ", " default\-dark ", " default\-light )
+or an inline 18\-color palette object.
+.TP
+.BR keybindings ", " key_sends
+Chord \(-> action, and chord \(-> raw bytes / escape sequence.
+.TP
+.B window
+.BR width ", " height ", " decorations
+.RB ( custom / system ),
+.B opacity
+(Wayland/macOS/Windows only), and an optional background
+.BR image .
+.TP
+.BR history ", " session ", " cursor ", " paste ", " notifications ", " clipboard ", " security
+Command\-history search, tab restore, cursor shape/blink, multi\-line paste
+confirmation, the long\-command notification threshold, OSC 52 clipboard
+reads, and the superuser warning.
+.RE
+.PP
+See the bundled
+.I README
+(\fI/usr/share/doc/pomptty/README.md\fR) for the full reference.
+.SH FILES
+.TP
+.I ~/.config/pomptty/config.json
+The configuration file.
+.TP
+.I ~/.local/state/pomptty/history/*.log
+Per\-shell command\-history logs, written by the shell\-integration hook.
+.TP
+.I ~/.local/state/pomptty/session.json
+The remembered tabs from the last run (directories, order, renames).
+.PP
+On macOS the state directory is
+.IR "~/Library/Application Support/pomptty" .
+.SH ENVIRONMENT
+.TP
+.B SHELL
+The shell to spawn when
+.B shell
+is not set in the configuration (falling back to
+.IR /bin/bash ).
+.TP
+.B TERM ", " COLORTERM
+Exported to the shell as
+.B xterm\-256color
+and
+.BR truecolor .
+.TP
+.B POMPTTY
+Set to
+.B 1
+in spawned shells, so scripts can detect pomptty.
+.TP
+.B POMPTTY_HISTORY_DIR
+The directory the shell\-integration hook appends history log lines to.
+.TP
+.B WGPU_POWER_PREF
+.RB ( low / high )
+Override the GPU adapter preference; pomptty defaults to a low\-power adapter.
+.TP
+.B WGPU_BACKEND
+Override the wgpu backend
+.RB ( vulkan / gl / metal / dx12 ).
+.SH SEE ALSO
+.BR alacritty (1)
+.SH AUTHOR
+Martin Thoma <info@martin\-thoma.de>.
+Project page: <https://github.com/MartinThoma/pomptty>.
