@@ -159,9 +159,14 @@ impl<'a> TerminalView<'a> {
     }
 
     fn process_input(self, layout: &Response, state: &mut TerminalViewState) -> Self {
-        if !layout.has_focus() || !layout.contains_pointer() {
+        // Keyboard input only needs the grid to hold focus. Mouse events
+        // additionally need the pointer over the grid (or a drag in progress),
+        // so a click on the tab strip doesn't start a selection.
+        if !layout.has_focus() {
+            state.is_dragged = false;
             return self;
         }
+        let pointer_ok = layout.contains_pointer() || state.is_dragged;
 
         let modifiers = layout.ctx.input(|i| i.modifiers);
         let events = layout.ctx.input(|i| i.events.clone());
@@ -183,7 +188,7 @@ impl<'a> TerminalView<'a> {
                 egui::Event::Ime(egui::ImeEvent::Commit(text)) => input_actions.push(
                     InputAction::BackendCall(BackendCommand::Write(text.into_bytes())),
                 ),
-                egui::Event::MouseWheel { unit, delta, .. } => input_actions.push(
+                egui::Event::MouseWheel { unit, delta, .. } if pointer_ok => input_actions.push(
                     process_mouse_wheel(state, self.font.font_type().size, unit, delta),
                 ),
                 egui::Event::PointerButton {
@@ -192,7 +197,7 @@ impl<'a> TerminalView<'a> {
                     modifiers,
                     pos,
                     ..
-                } => input_actions.push(process_button_click(
+                } if pointer_ok => input_actions.push(process_button_click(
                     state,
                     layout,
                     self.backend,
@@ -202,7 +207,7 @@ impl<'a> TerminalView<'a> {
                     &modifiers,
                     pressed,
                 )),
-                egui::Event::PointerMoved(pos) => {
+                egui::Event::PointerMoved(pos) if pointer_ok => {
                     input_actions = process_mouse_move(state, layout, self.backend, pos, &modifiers)
                 }
                 _ => {}

@@ -20,6 +20,10 @@
 //!   via `Term::selection_to_string` (multi-row copies keep line breaks);
 //!   `scrollback_text` for "open scrollback in an editor"; `Event::Ime`
 //!   commit handling.
+//! - Keyboard input is gated on grid focus alone, not on the pointer also
+//!   being over the grid (`process_input`) — so you can type as soon as the
+//!   window is focused. Mouse events still require the pointer / an active
+//!   drag.
 //!
 //! See pomptty's `ROADMAP.md` for the reasoning. Not otherwise kept in sync
 //! with upstream.
