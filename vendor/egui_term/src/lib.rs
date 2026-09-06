@@ -3,7 +3,9 @@
 //!
 //! Patched for pomptty:
 //! - M4 slice 4 ("in-terminal polish"): per-cell bold/italic font selection,
-//!   a themed/shaped/blinking/gliding cursor, plain-hover OSC 8 hyperlink
+//!   a themed/shaped/gliding cursor that blinks as a pixel-snapped fade (a
+//!   torn window blit under a no-vsync compositor then shows two near-equal
+//!   opacities, not a striped half-block), plain-hover OSC 8 hyperlink
 //!   detection, underline (single / double / undercurl / dotted / dashed +
 //!   SGR 58 underline colour) and strikeout rendering (`push_text_decoration`
 //!   — `alacritty_terminal` already tracks the flags), pomptty-drawn

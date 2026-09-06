@@ -605,16 +605,26 @@ fn paint_cursor(
 
     let outline_only = shape == CursorShape::HollowBlock || !has_focus;
 
-    let blink_on = if has_focus && blinking {
-        let phase = (ctx.input(|i| i.time) / 0.53) as i64;
-        ctx.request_repaint_after(Duration::from_millis(266));
-        phase % 2 == 0
+    // Blink as an eased fade rather than a hard on/off. A window-compositor
+    // that tears the window blit (Marco's built-in one, when the window isn't
+    // maximised) then shows the cursor at two near-equal opacities top and
+    // bottom instead of a half-drawn "striped" block.
+    let blink = if has_focus && blinking {
+        let period = 0.53_f64;
+        let time = ctx.input(|i| i.time);
+        let on = (time / period) as i64 % 2 == 0;
+        // Wake up at the next toggle; `animate_bool_with_time` drives the ease.
+        ctx.request_repaint_after(Duration::from_secs_f64(period - time.rem_euclid(period)));
+        ctx.animate_bool_with_time(widget_id.with("cursor_blink"), on, 0.16)
     } else {
-        true
+        1.0
     };
-    if !blink_on {
+    if blink <= 0.02 {
         return;
     }
+    let fade = |c: Color32| {
+        Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (c.a() as f32 * blink).round() as u8)
+    };
 
     let rect = match shape {
         CursorShape::Hidden => unreachable!(),
@@ -634,27 +644,40 @@ fn paint_cursor(
         }
     };
 
+    // Snap the cursor's edges to whole physical pixels. The grid origin often
+    // lands on a fractional pixel (the window isn't an exact multiple of the
+    // cell size), and a filled/stroked rect straddling pixel rows renders with
+    // half-covered rows top and bottom — which reads as faint stripes across
+    // the cursor, especially when the window isn't maximized.
+    let ppp = ctx.pixels_per_point().max(0.01);
+    let snap = |v: f32| (v * ppp).round() / ppp;
+    let rect = Rect::from_min_max(
+        Pos2::new(snap(rect.min.x), snap(rect.min.y)),
+        Pos2::new(snap(rect.max.x), snap(rect.max.y)),
+    );
+
     if outline_only {
         shapes.push(Shape::Rect(RectShape::stroke(
             rect,
             CornerRadius::ZERO,
-            Stroke::new(1.0, color),
+            Stroke::new(1.0, fade(color)),
             StrokeKind::Inside,
         )));
     } else {
         shapes.push(Shape::Rect(RectShape::filled(
             rect,
             CornerRadius::ZERO,
-            color,
+            fade(color),
         )));
         if shape == CursorShape::Block {
             if let Some((c, font_id, glyph_pos)) = glyph {
-                let bg = bg_color;
-                shapes.push(
-                    painter.fonts_mut(|f| {
-                        Shape::text(f, glyph_pos, Align2::CENTER_TOP, c, font_id, bg)
-                    }),
-                );
+                // Sit the punched-through glyph exactly on the snapped block
+                // so no sliver of cursor colour shows above or below it; fade
+                // it with the block so the real glyph shows as it blinks out.
+                let glyph_pos = Pos2::new(glyph_pos.x, rect.min.y);
+                shapes.push(painter.fonts_mut(|f| {
+                    Shape::text(f, glyph_pos, Align2::CENTER_TOP, c, font_id, fade(bg_color))
+                }));
             }
         }
     }
