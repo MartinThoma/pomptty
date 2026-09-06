@@ -146,8 +146,23 @@ exposure; forked into [`vendor/egui_term/`](vendor/egui_term)):
       cell's normal palette colour (0–7) to its bright counterpart (8–15);
       `DIM` (`fg × 0.7`) and `DIM_BOLD` are excluded and still render dim
 
-**Slice 5 — depth**: optional background blur / translucency; optional background
-image with dimming + vignette; faint top-edge pane highlight.
+**Slice 5 — depth**:
+
+- [x] **background image** — `window.background` `{ path, dim, vignette }`:
+      the image is cover-fit behind the grid, blended toward the theme
+      background by `dim`, with a soft edge `vignette` (four gradient
+      strips). Painted into an opaque window, so it works on every backend
+      (`load_image` / `paint_background` / `cover_uv` in `src/app.rs`; the
+      grid skips its opaque sheet via `TerminalView::set_bg_opacity`)
+- [x] **window translucency** — `window.opacity` (`0.05`–`1.0`). Active on
+      Wayland / macOS / Windows; on X11 it's ignored with a warning
+      (`config::window_translucency_supported`) because wgpu's Vulkan Xlib
+      surface is opaque-only and would render the window black
+- [x] **faint top-edge highlight** on the terminal pane — a 5%-alpha
+      hairline so the pane reads as a raised sheet; always on
+- backdrop **blur** is delegated to the compositor (KWin / picom
+      `blur-background`, keyed on window app-id `pomptty`) — there is no
+      portable winit/wgpu API for it, same as Alacritty
 
 ## M5 — command blocks ★ (flagship)
 

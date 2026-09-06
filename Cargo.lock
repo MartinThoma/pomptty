@@ -1787,6 +1787,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2894,6 +2896,7 @@ dependencies = [
  "egui_term",
  "env_logger",
  "fontdb",
+ "image",
  "log",
  "notify",
  "notify-rust",

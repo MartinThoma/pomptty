@@ -78,6 +78,13 @@ pub struct PompttyApp {
     config: Config,
     config_path: PathBuf,
     theme: TerminalTheme,
+    /// The decoded `window.background` image, uploaded once. `None` if unset
+    /// or the file couldn't be read.
+    bg_texture: Option<egui::TextureHandle>,
+    /// Whether the window is actually translucent (opacity < 1 *and* a
+    /// session that can composite it). Fixed at startup — the viewport's
+    /// alpha flag can't change at runtime.
+    translucent: bool,
     /// Whether pomptty draws its own window frame (from `window.decorations`;
     /// fixed at startup — the viewport flag can't change at runtime).
     custom_chrome: bool,
@@ -241,6 +248,9 @@ impl PompttyApp {
         let custom_chrome = config.window.decorations == crate::config::Decoration::Custom;
         let mut app = Self {
             theme: config.theme.terminal_theme(),
+            bg_texture: None,
+            translucent: config.window.opacity < 1.0
+                && crate::config::window_translucency_supported(),
             custom_chrome,
             initial_size: custom_chrome
                 .then(|| egui::vec2(config.window.width, config.window.height)),
@@ -281,10 +291,34 @@ impl PompttyApp {
             bell_at: None,
             title_shown: String::new(),
         };
+        app.reload_bg_texture(ctx);
         if let Some(err) = config_error {
             app.set_toast(format!("Config error (using defaults): {err}"));
         }
         Ok(app)
+    }
+
+    /// (Re)load `window.background` into a texture. Called at startup and on
+    /// config reload; a missing / unreadable file toasts and clears the
+    /// texture rather than failing.
+    fn reload_bg_texture(&mut self, ctx: &egui::Context) {
+        let Some(bg) = &self.config.window.background else {
+            self.bg_texture = None;
+            return;
+        };
+        match load_image(&bg.path) {
+            Ok(image) => {
+                self.bg_texture = Some(ctx.load_texture(
+                    "pomptty_background",
+                    image,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+            Err(e) => {
+                self.bg_texture = None;
+                self.set_toast(format!("Background image: {e}"));
+            }
+        }
     }
 
     fn set_toast(&mut self, msg: impl Into<String>) {
@@ -983,7 +1017,11 @@ impl PompttyApp {
         self.key_sends = cfg.key_sends.compile();
         self.font_variants = crate::fonts::apply(ctx, &cfg);
         crate::ui::style::apply(ctx, &cfg.theme);
+        let bg_changed = cfg.window.background != self.config.window.background;
         self.config = cfg;
+        if bg_changed {
+            self.reload_bg_texture(ctx);
+        }
         self.set_toast("Config reloaded");
     }
 
@@ -1454,55 +1492,90 @@ impl eframe::App for PompttyApp {
             }
         }
 
+        let opacity = if self.translucent {
+            self.config.window.clamped_opacity()
+        } else {
+            1.0
+        };
+        // Cloning the config only happens when a texture is actually loaded
+        // (the `Option::clone` for the common no-image case is a no-op).
+        let bg_image = self
+            .bg_texture
+            .clone()
+            .and_then(|tex| self.config.window.background.clone().map(|cfg| (tex, cfg)));
+        // A translucent fill only when the window itself is translucent; a
+        // background image sits on an opaque matte and is painted over.
+        let panel_fill = if bg_image.is_none() && opacity < 1.0 {
+            a8(surfaces.bg, opacity)
+        } else {
+            surfaces.bg
+        };
         let panel = egui::Frame::new()
-            .fill(surfaces.bg)
+            .fill(panel_fill)
             .inner_margin(egui::Margin::same(TERMINAL_MARGIN));
         let font_settings = self.font_settings();
-        egui::CentralPanel::default().frame(panel).show(ui, |ui| {
-            let tab = &mut self.tabs[self.active];
-            let view = TerminalView::new(ui, &mut tab.backend)
-                .set_focus(
-                    self.pending_close.is_none()
-                        && self.pending_paste.is_none()
-                        && self.history_overlay.is_none()
-                        && self.rename_target.is_none()
-                        && self.tab_search.is_none()
-                        && self.omnibox.is_none(),
-                )
-                .set_theme(self.theme.clone())
-                .set_font(TerminalFont::new(font_settings))
-                .set_bold_is_bright(self.config.bold_is_bright)
-                .set_size(ui.available_size());
-            let response = ui.add(view);
+        let bold_is_bright = self.config.bold_is_bright;
+        let panel_rect = egui::CentralPanel::default()
+            .frame(panel)
+            .show(ui, |ui| {
+                if let Some((tex, cfg)) = &bg_image {
+                    paint_background(ui.painter(), ui.max_rect(), tex, surfaces, cfg);
+                }
+                let tab = &mut self.tabs[self.active];
+                let view = TerminalView::new(ui, &mut tab.backend)
+                    .set_focus(
+                        self.pending_close.is_none()
+                            && self.pending_paste.is_none()
+                            && self.history_overlay.is_none()
+                            && self.rename_target.is_none()
+                            && self.tab_search.is_none()
+                            && self.omnibox.is_none(),
+                    )
+                    .set_theme(self.theme.clone())
+                    .set_font(TerminalFont::new(font_settings))
+                    .set_bold_is_bright(bold_is_bright)
+                    .set_bg_opacity(if bg_image.is_some() { 0.0 } else { opacity })
+                    .set_size(ui.available_size());
+                let response = ui.add(view);
 
-            // X11 "select to copy": mirror the mouse selection onto PRIMARY.
-            if tab.backend.last_content().selectable_range.is_some() {
-                self.primary.set(&tab.backend.selectable_content());
-            }
-            // Middle-click pastes PRIMARY — unless an app is reading the mouse
-            // itself, where the click belongs to it (pomptty doesn't forward
-            // middle clicks to apps yet, so it's just swallowed there).
-            let mouse_mode = tab
-                .backend
-                .last_content()
-                .terminal_mode
-                .contains(TerminalMode::MOUSE_MODE);
-            if response.middle_clicked()
-                && !mouse_mode
-                && let Some(text) = self.primary.get()
-            {
-                let bracketed = tab
+                // X11 "select to copy": mirror the mouse selection onto PRIMARY.
+                if tab.backend.last_content().selectable_range.is_some() {
+                    self.primary.set(&tab.backend.selectable_content());
+                }
+                // Middle-click pastes PRIMARY — unless an app is reading the mouse
+                // itself, where the click belongs to it (pomptty doesn't forward
+                // middle clicks to apps yet, so it's just swallowed there).
+                let mouse_mode = tab
                     .backend
                     .last_content()
                     .terminal_mode
-                    .contains(TerminalMode::BRACKETED_PASTE);
-                if self.config.paste.confirm_multiline && text.contains('\n') && !bracketed {
-                    self.pending_paste = Some((tab.id, text));
-                } else {
-                    tab.backend.process_command(BackendCommand::Paste(text));
+                    .contains(TerminalMode::MOUSE_MODE);
+                if response.middle_clicked()
+                    && !mouse_mode
+                    && let Some(text) = self.primary.get()
+                {
+                    let bracketed = tab
+                        .backend
+                        .last_content()
+                        .terminal_mode
+                        .contains(TerminalMode::BRACKETED_PASTE);
+                    if self.config.paste.confirm_multiline && text.contains('\n') && !bracketed {
+                        self.pending_paste = Some((tab.id, text));
+                    } else {
+                        tab.backend.process_command(BackendCommand::Paste(text));
+                    }
                 }
-            }
-        });
+            })
+            .response
+            .rect;
+
+        // A faint highlight along the top edge of the terminal pane so it
+        // reads as a raised sheet — subtle depth, always on.
+        ui.painter().hline(
+            panel_rect.left()..=panel_rect.right(),
+            panel_rect.top() + 0.5,
+            egui::Stroke::new(1.0, surfaces.text.gamma_multiply(0.05)),
+        );
 
         if self.custom_chrome {
             // A hairline border so the frameless window has a defined edge.
@@ -1541,6 +1614,18 @@ impl eframe::App for PompttyApp {
         }
         if let Err(e) = Session::capture(&self.tabs, self.active).save() {
             log::warn!("could not save session on exit: {e:#}");
+        }
+    }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if self.translucent {
+            // Transparent: the translucent panel fill / background image is
+            // painted by the UI on top.
+            [0.0; 4]
+        } else {
+            Surfaces::from_theme(&self.config.theme)
+                .bg
+                .to_normalized_gamma_f32()
         }
     }
 }
@@ -1621,6 +1706,91 @@ fn resize_edges(ui: &egui::Ui, ctx: &egui::Context) {
 /// `len` existing tabs — clamped so a stale or out-of-range request can't panic.
 fn insert_slot(index: Option<usize>, len: usize) -> usize {
     index.unwrap_or(len).min(len)
+}
+
+/// `color` at the given alpha fraction, keeping its RGB. Used for the
+/// translucent panel fill and the background dim / vignette.
+fn a8(color: egui::Color32, alpha: f32) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(
+        color.r(),
+        color.g(),
+        color.b(),
+        (alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
+    )
+}
+
+/// Decode a PNG/JPEG file into an egui image.
+fn load_image(path: &str) -> Result<egui::ColorImage> {
+    let img = image::open(path)
+        .map_err(|e| anyhow::anyhow!("{path}: {e}"))?
+        .to_rgba8();
+    let size = [img.width() as usize, img.height() as usize];
+    Ok(egui::ColorImage::from_rgba_unmultiplied(size, &img))
+}
+
+/// The sub-rectangle (0..1 UV space) of an `img`-sized image to sample so it
+/// covers a `rect`-sized area without distortion (centre-cropped, "cover").
+fn cover_uv(img: [f32; 2], rect: [f32; 2]) -> egui::Rect {
+    let img_ar = img[0].max(1.0) / img[1].max(1.0);
+    let rect_ar = rect[0].max(1.0) / rect[1].max(1.0);
+    if img_ar > rect_ar {
+        let frac = rect_ar / img_ar;
+        let off = (1.0 - frac) / 2.0;
+        egui::Rect::from_min_max(egui::pos2(off, 0.0), egui::pos2(off + frac, 1.0))
+    } else {
+        let frac = img_ar / rect_ar;
+        let off = (1.0 - frac) / 2.0;
+        egui::Rect::from_min_max(egui::pos2(0.0, off), egui::pos2(1.0, off + frac))
+    }
+}
+
+/// Paint the background image into `rect`: cover-fit, dim toward the theme
+/// background, then a soft edge vignette.
+fn paint_background(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    tex: &egui::TextureHandle,
+    s: Surfaces,
+    cfg: &crate::config::BackgroundConfig,
+) {
+    let size = tex.size_vec2();
+    let uv = cover_uv([size.x, size.y], [rect.width(), rect.height()]);
+    painter.image(tex.id(), rect, uv, egui::Color32::WHITE);
+
+    let dim = cfg.dim.clamp(0.0, 1.0);
+    if dim > 0.0 {
+        painter.rect_filled(rect, 0.0, a8(s.bg, dim));
+    }
+
+    let vignette = cfg.vignette.clamp(0.0, 1.0);
+    if vignette > 0.0 {
+        let depth = rect.width().min(rect.height()) * 0.35;
+        let edge = a8(s.bg, vignette);
+        let clear = egui::Color32::TRANSPARENT;
+        let mut mesh = egui::Mesh::default();
+        let mut strip = |e0: egui::Pos2, e1: egui::Pos2, i0: egui::Pos2, i1: egui::Pos2| {
+            let n = mesh.vertices.len() as u32;
+            mesh.colored_vertex(e0, edge);
+            mesh.colored_vertex(e1, edge);
+            mesh.colored_vertex(i1, clear);
+            mesh.colored_vertex(i0, clear);
+            mesh.add_triangle(n, n + 1, n + 2);
+            mesh.add_triangle(n, n + 2, n + 3);
+        };
+        let (lt, rt, lb, rb) = (
+            rect.left_top(),
+            rect.right_top(),
+            rect.left_bottom(),
+            rect.right_bottom(),
+        );
+        let dy = egui::vec2(0.0, depth);
+        let dx = egui::vec2(depth, 0.0);
+        strip(lt, rt, lt + dy, rt + dy); // top
+        strip(lb, rb, lb - dy, rb - dy); // bottom
+        strip(lt, lb, lt + dx, lb + dx); // left
+        strip(rt, rb, rt - dx, rb - dx); // right
+        painter.add(mesh);
+    }
 }
 
 /// Position in `closed_tabs` for "the `k`-th most recently closed" (`0` = the
@@ -1865,8 +2035,30 @@ fn notify_command_finished(rec: &crate::history::CommandRecord) {
 #[cfg(test)]
 mod tests {
     use super::{
-        FONT_MAX, FONT_MIN, closed_tab_slot, format_duration, insert_slot, remap_index, snap_zoom,
+        FONT_MAX, FONT_MIN, closed_tab_slot, cover_uv, format_duration, insert_slot, remap_index,
+        snap_zoom,
     };
+
+    #[test]
+    fn cover_uv_center_crops_the_longer_axis() {
+        // Equal aspect → sample the whole image.
+        assert_eq!(
+            cover_uv([100.0, 100.0], [50.0, 50.0]),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
+        );
+        // Landscape image into a square area → crop left/right.
+        let uv = cover_uv([200.0, 100.0], [100.0, 100.0]);
+        assert!(uv.left() > 0.0 && (uv.left() - 0.25).abs() < 1e-6);
+        assert_eq!(uv.top(), 0.0);
+        assert!((uv.width() - 0.5).abs() < 1e-6);
+        // Portrait image (1:2) into a landscape area (2:1) → crop top/bottom,
+        // showing the middle 1/4 of the image height.
+        let uv = cover_uv([100.0, 200.0], [200.0, 100.0]);
+        assert_eq!(uv.left(), 0.0);
+        assert!((uv.width() - 1.0).abs() < 1e-6);
+        assert!((uv.top() - 0.375).abs() < 1e-6);
+        assert!((uv.height() - 0.25).abs() < 1e-6);
+    }
 
     #[test]
     fn format_duration_reads_naturally() {

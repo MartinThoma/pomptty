@@ -73,6 +73,8 @@ the PTY. Linux and Windows are supported; macOS is on the
   underline colour) and strikethrough — neovim / helix LSP squiggles render.
 - Box-drawing, block, shade and Powerline glyphs drawn by pomptty rather than
   the font — lines join with no sub-pixel gap and stay crisp at any size.
+- Optional background image (dimmed, with a soft vignette) and, on
+  Wayland / macOS / Windows, window translucency.
 - A themed, shaped (block/beam/underline), gliding, blinking cursor — apps that
   set their own style (`vim`'s insert-mode beam) override the configured
   default.
@@ -244,7 +246,7 @@ config.
 | `theme` | A builtin name or an inline palette object (see below). |
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
 | `key_sends` | Map of chord → raw byte string / escape sequence sent to the shell (see [Keybindings](#keybindings)). |
-| `window` | `width` / `height` in logical pixels, and `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly; takes effect on restart). |
+| `window` | `width` / `height` in logical pixels; `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly); `opacity` (`0.05`–`1.0`, default `1.0`) — terminal-body translucency, **Wayland / macOS / Windows only** (ignored on X11); `background` — `{ "path": "…", "dim": 0.55, "vignette": 0.35 }` draws a PNG/JPEG behind the text. All take effect on restart. |
 | `history` | `enabled` (default `true`) — whether <kbd>Ctrl</kbd>+<kbd>R</kbd> opens the overlay (see [Shell integration](#shell-integration)); `max_results` (default `50`) — rows shown at once. |
 | `session` | `restore` (default `true`) — reopen the last run's tabs, directories and renames on launch; also stops pomptty recording them when `false`. Saved to `session.json` next to the history logs. |
 | `cursor` | `shape` (default `"block"`; also `"beam"`, `"underline"`) and `blink` (default `true`) — the cursor's appearance before an app sets its own via DECSCUSR (`vim`'s insert-mode beam, for instance, still overrides this at runtime). |

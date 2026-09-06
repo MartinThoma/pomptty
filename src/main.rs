@@ -70,6 +70,16 @@ fn run() -> Result<()> {
         .with_min_inner_size([320.0, 200.0])
         .with_title("pomptty")
         .with_app_id("pomptty");
+    if config.window.opacity < 1.0 {
+        if config::window_translucency_supported() {
+            viewport = viewport.with_transparent(true);
+        } else {
+            log::warn!(
+                "window.opacity < 1.0 needs a Wayland session — wgpu's X11 (Vulkan) \
+                 surface is opaque-only and would render the window black; ignoring it"
+            );
+        }
+    }
     if config.window.decorations == config::Decoration::Custom {
         // pomptty draws its own title bar / borders. The explicit "normal"
         // window type stops some X11 WMs (e.g. Marco) from auto-maximizing an

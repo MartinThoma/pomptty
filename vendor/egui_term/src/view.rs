@@ -51,6 +51,11 @@ pub struct TerminalView<'a> {
     bindings_layout: BindingsLayout,
     /// Draw bold text with the bright palette entry (SGR 1 → colours 8–15).
     bold_is_bright: bool,
+    /// Opacity of the terminal's *default* background. `< 1.0` means the
+    /// caller paints a translucent sheet / background image behind the grid,
+    /// so the opaque full-rect fill here is skipped. Colored cell backgrounds
+    /// stay opaque regardless.
+    bg_opacity: f32,
 }
 
 impl Widget for TerminalView<'_> {
@@ -88,6 +93,7 @@ impl<'a> TerminalView<'a> {
             theme: TerminalTheme::default(),
             bindings_layout: BindingsLayout::new(),
             bold_is_bright: false,
+            bg_opacity: 1.0,
         }
     }
 
@@ -118,6 +124,12 @@ impl<'a> TerminalView<'a> {
     #[inline]
     pub fn set_bold_is_bright(mut self, yes: bool) -> Self {
         self.bold_is_bright = yes;
+        self
+    }
+
+    #[inline]
+    pub fn set_bg_opacity(mut self, opacity: f32) -> Self {
+        self.bg_opacity = opacity;
         self
     }
 
@@ -221,11 +233,16 @@ impl<'a> TerminalView<'a> {
         let colors = &content.colors;
         let global_bg = resolve_color(&self.theme, colors, Color::Named(NamedColor::Background));
 
-        let mut shapes = vec![Shape::Rect(RectShape::filled(
-            Rect::from_min_max(layout_min, layout_max),
-            CornerRadius::ZERO,
-            global_bg,
-        ))];
+        // The opaque background sheet is skipped when the caller is drawing a
+        // translucent window / background image behind the grid.
+        let mut shapes = Vec::new();
+        if self.bg_opacity >= 1.0 {
+            shapes.push(Shape::Rect(RectShape::filled(
+                Rect::from_min_max(layout_min, layout_max),
+                CornerRadius::ZERO,
+                global_bg,
+            )));
+        }
 
         // A real OSC 8 hyperlink under the pointer, if any, found once so the
         // per-cell loop below can just compare hyperlink ids. This is plain

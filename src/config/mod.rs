@@ -214,6 +214,14 @@ pub struct WindowConfig {
     /// use it if your window manager handles a borderless window poorly (no drop
     /// shadow on non-compositing X11). Takes effect on restart.
     pub decorations: Decoration,
+    /// Terminal-body opacity, `0.05`–`1.0` (default `1.0` = opaque). Below
+    /// `1.0` the window is translucent — needs a compositing window manager;
+    /// backdrop blur, if you want it, is a setting in your compositor for
+    /// windows with app-id `pomptty`. Takes effect on restart.
+    pub opacity: f32,
+    /// An image drawn behind the terminal text (a wallpaper). Opt-in; takes
+    /// effect on restart.
+    pub background: Option<BackgroundConfig>,
 }
 
 impl Default for WindowConfig {
@@ -222,6 +230,48 @@ impl Default for WindowConfig {
             width: 900.0,
             height: 560.0,
             decorations: Decoration::default(),
+            opacity: 1.0,
+            background: None,
+        }
+    }
+}
+
+impl WindowConfig {
+    /// `opacity` clamped to a sane range.
+    pub fn clamped_opacity(&self) -> f32 {
+        self.opacity.clamp(0.05, 1.0)
+    }
+}
+
+/// Whether a translucent window will actually composite (rather than render
+/// black). True on Wayland; false on X11, where wgpu's Vulkan Xlib surface is
+/// opaque-only. macOS / Windows always support it.
+pub fn window_translucency_supported() -> bool {
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        return true;
+    }
+    std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
+/// A background image behind the terminal text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BackgroundConfig {
+    /// Path to a PNG or JPEG file.
+    pub path: String,
+    /// How far to blend the image toward the theme background, `0.0`–`1.0`
+    /// (default `0.55`). Higher keeps the text readable.
+    pub dim: f32,
+    /// Edge-darkening strength, `0.0`–`1.0` (default `0.35`).
+    pub vignette: f32,
+}
+
+impl Default for BackgroundConfig {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            dim: 0.55,
+            vignette: 0.35,
         }
     }
 }
@@ -319,6 +369,26 @@ mod tests {
         let cfg: Config = serde_json::from_str("{}").unwrap();
         assert_eq!(cfg.font_size, Config::default().font_size);
         assert!(cfg.keybindings.get("ctrl+minus").is_some());
+    }
+
+    #[test]
+    fn window_opacity_and_background_defaults() {
+        let cfg: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(cfg.window.opacity, 1.0);
+        assert!(cfg.window.background.is_none());
+
+        let cfg: Config = serde_json::from_str(
+            r#"{ "window": { "opacity": 0.8, "background": { "path": "/x.png" } } }"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.window.clamped_opacity(), 0.8);
+        let bg = cfg.window.background.unwrap();
+        assert_eq!(bg.path, "/x.png");
+        assert_eq!(bg.dim, 0.55, "dim falls back to its default");
+
+        // out-of-range opacity is clamped on use, not rejected
+        let cfg: Config = serde_json::from_str(r#"{ "window": { "opacity": 5.0 } }"#).unwrap();
+        assert_eq!(cfg.window.clamped_opacity(), 1.0);
     }
 
     #[test]

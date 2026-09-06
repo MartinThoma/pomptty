@@ -62,7 +62,8 @@
   "window": {
     "width": 900.0,
     "height": 560.0,
-    "decorations": "custom"
+    "decorations": "custom",
+    "opacity": 1.0
   },
   "history": {
     "enabled": true,

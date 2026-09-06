@@ -7,8 +7,9 @@
 //!   detection, underline (single / double / undercurl / dotted / dashed +
 //!   SGR 58 underline colour) and strikeout rendering (`push_text_decoration`
 //!   — `alacritty_terminal` already tracks the flags), pomptty-drawn
-//!   box-drawing / block / shade / Powerline glyphs (`box_drawing`), and a
-//!   `bold_is_bright` option.
+//!   box-drawing / block / shade / Powerline glyphs (`box_drawing`), a
+//!   `bold_is_bright` option, and `set_bg_opacity` (skip the opaque grid
+//!   background for a translucent window / wallpaper).
 //! - M9: bracketed paste (`BackendCommand::Paste` / `paste_payload`);
 //!   OSC 4/10/11/12 dynamic colors (`RenderableContent::colors` +
 //!   `resolve_color`), plus the query form answered via `theme_rgb` +
