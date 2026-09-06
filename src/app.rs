@@ -14,7 +14,7 @@ use egui_term::{
 use notify::{RecursiveMode, Watcher};
 
 use crate::config::Config;
-use crate::config::keybindings::{Action, Chord};
+use crate::config::keybindings::{Action, Chord, pretty_chord};
 use crate::fonts::FontVariants;
 use crate::history::log_store::LogStore;
 use crate::primary_selection::PrimarySelection;
@@ -863,7 +863,28 @@ impl PompttyApp {
             .into_iter()
             .filter(|d| Some(d) != active_cwd.as_ref())
             .collect();
-        self.omnibox = Some(OmniboxOverlay::new(entries, active_id, dirs));
+        self.omnibox = Some(OmniboxOverlay::new(
+            entries,
+            active_id,
+            dirs,
+            self.action_shortcuts(),
+        ));
+    }
+
+    /// Each `Action` paired with its bound shortcut, pre-formatted for
+    /// display. Prefers the shortest chord when an action has several.
+    fn action_shortcuts(&self) -> Vec<(Action, String)> {
+        let mut best: Vec<(Action, String)> = Vec::new();
+        for (chord, action) in self.config.keybindings.merged() {
+            match best.iter_mut().find(|(a, _)| *a == action) {
+                Some((_, cur)) if cur.len() <= chord.len() => {}
+                Some((_, cur)) => *cur = chord,
+                None => best.push((action, chord)),
+            }
+        }
+        best.into_iter()
+            .map(|(a, c)| (a, pretty_chord(&c)))
+            .collect()
     }
 
     /// Move focus `delta` tabs, wrapping around.

@@ -30,10 +30,10 @@ the PTY. Linux and Windows are supported; macOS is on the
 ## Features
 
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>) — one
-  input, fuzzy-filtered across four ranked sections at once: actions, open
-  tabs, command history, and recent directories. <kbd>Enter</kbd> acts on
-  whatever's selected — run the action, switch tab, drop the command on the
-  prompt, or `cd` the active tab there.
+  input, fuzzy-filtered across four ranked sections at once: actions (each
+  with its keyboard shortcut), open tabs, command history, and recent
+  directories. <kbd>Enter</kbd> acts on whatever's selected — run the action,
+  switch tab, drop the command on the prompt, or `cd` the active tab there.
 - **Tabs** — open, close, switch, and drag-to-reorder by keyboard or mouse; each
   tab shows the title set by the shell (OSC 0/2), the window title follows the
   active tab, and a new tab opens in the active tab's working directory.
@@ -147,7 +147,8 @@ A binding maps a **chord** to an **action**. Chords are written like
 Your `keybindings` block is **layered on the built-in defaults**: an entry
 overrides or adds a chord, future default shortcuts appear without regenerating
 the file, and binding a chord to `"disabled"` removes a default
-(e.g. `"ctrl+r": "disabled"`).
+(e.g. `"ctrl+r": "disabled"`). The command palette lists every action with
+its current shortcut.
 
 | Action | Default | Notes |
 |---|---|---|
@@ -161,7 +162,7 @@ the file, and binding a chord to `"disabled"` removes a default
 | `reload-config` | `ctrl+shift+r` | |
 | `new-tab` | — | not bound by default (`reopen-tab` covers `ctrl+shift+t`); bind it yourself for a guaranteed-new tab |
 | `reopen-tab` | `ctrl+shift+t` | reopens the last closed tab (old slot, same directory); opens a plain new tab when there's nothing to reopen |
-| `close-tab` | `ctrl+shift+w` | closing the last tab quits |
+| `close-tab` | `ctrl+w`, `ctrl+shift+w` | closing the last tab quits. `ctrl+w` shadows the shell's "delete word" — rebind it to `"disabled"` if you'd rather keep that |
 | `next-tab` / `prev-tab` | `ctrl+tab` / `ctrl+shift+tab` (also `ctrl+shift+pagedown` / `pageup`) | wraps around |
 | `goto-tab-1` … `goto-tab-9` | `ctrl+1` … `ctrl+9` | jump to that tab; `goto-tab-9` is the last tab |
 | `tab-search` | `ctrl+shift+a` | fuzzy switcher over the open tabs |

@@ -53,6 +53,7 @@
     "ctrl+shift+v": "paste",
     "ctrl+shift+w": "close-tab",
     "ctrl+tab": "next-tab",
+    "ctrl+w": "close-tab",
     "shift+end": "scroll-to-bottom",
     "shift+home": "scroll-to-top",
     "shift+pagedown": "scroll-page-down",

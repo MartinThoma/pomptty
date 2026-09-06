@@ -241,6 +241,35 @@ fn parse_key(tok: &str) -> Option<Key> {
     })
 }
 
+/// Render a config chord string (`"ctrl+shift+t"`) for display
+/// (`"Ctrl+Shift+T"`) — used in the command palette.
+pub fn pretty_chord(chord: &str) -> String {
+    chord
+        .split('+')
+        .map(|part| match part.trim().to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => "Ctrl".to_owned(),
+            "shift" => "Shift".to_owned(),
+            "alt" | "option" => "Alt".to_owned(),
+            "super" | "cmd" | "command" | "meta" | "win" | "windows" => "Super".to_owned(),
+            "pageup" | "pgup" => "PgUp".to_owned(),
+            "pagedown" | "pgdn" => "PgDn".to_owned(),
+            "plus" | "add" => "+".to_owned(),
+            "minus" | "subtract" => "-".to_owned(),
+            "equals" | "equal" => "=".to_owned(),
+            "escape" | "esc" => "Esc".to_owned(),
+            other if other.chars().count() == 1 => other.to_uppercase(),
+            other => {
+                let mut it = other.chars();
+                match it.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + it.as_str(),
+                    None => String::new(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
 /// The keybinding table: chord string -> action.
 ///
 /// Stored as a `BTreeMap` keyed by the *original* chord string so it round-trips
@@ -303,6 +332,7 @@ impl Default for KeyBindings {
             ("ctrl+shift+r", Action::ReloadConfig),
             ("ctrl+shift+t", Action::ReopenTab),
             ("ctrl+shift+a", Action::TabSearch),
+            ("ctrl+w", Action::CloseTab),
             ("ctrl+shift+w", Action::CloseTab),
             ("ctrl+shift+pagedown", Action::NextTab),
             ("ctrl+shift+pageup", Action::PrevTab),
@@ -421,6 +451,15 @@ mod tests {
         let c = parse_chord("ctrl+shift+t").unwrap();
         assert!(c.modifiers.ctrl && c.modifiers.shift && !c.modifiers.alt);
         assert_eq!(c.key, Key::T);
+    }
+
+    #[test]
+    fn pretty_chord_reads_naturally() {
+        assert_eq!(pretty_chord("ctrl+shift+t"), "Ctrl+Shift+T");
+        assert_eq!(pretty_chord("ctrl+w"), "Ctrl+W");
+        assert_eq!(pretty_chord("ctrl+plus"), "Ctrl++");
+        assert_eq!(pretty_chord("shift+pageup"), "Shift+PgUp");
+        assert_eq!(pretty_chord("ctrl+shift+pagedown"), "Ctrl+Shift+PgDn");
     }
 
     #[test]

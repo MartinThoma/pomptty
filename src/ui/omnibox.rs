@@ -21,9 +21,10 @@ const ROW_ONE_LINE: f32 = 26.0;
 /// Rows kept per section; sections that end up empty are skipped entirely.
 const SECTION_LIMIT: usize = 6;
 
-/// Actions worth reaching from the palette. Deliberately a curated subset of
-/// [`Action`], not every variant — `GotoTab`/`Copy`/`Paste`/`Disabled` either
-/// don't make sense here or are covered by the Tabs section.
+/// Actions reachable from the palette, each shown with its keyboard shortcut
+/// (resolved from the live config). `GotoTab` is left out — the Tabs section
+/// covers switching — and `Copy` / `Paste` are handled by the terminal
+/// widget, but everything else with a binding is here.
 const PALETTE_ACTIONS: &[(&str, Action)] = &[
     ("New Tab", Action::NewTab),
     ("Reopen Closed Tab", Action::ReopenTab),
@@ -34,7 +35,11 @@ const PALETTE_ACTIONS: &[(&str, Action)] = &[
     ("Search History", Action::HistorySearch),
     ("Reload Config", Action::ReloadConfig),
     ("Clear Screen", Action::Clear),
+    ("Increase Font Size", Action::FontIncrease),
+    ("Decrease Font Size", Action::FontDecrease),
     ("Reset Font Size", Action::FontReset),
+    ("Scroll Page Up", Action::ScrollPageUp),
+    ("Scroll Page Down", Action::ScrollPageDown),
     ("Scroll to Top", Action::ScrollToTop),
     ("Scroll to Bottom", Action::ScrollToBottom),
     ("View: Maximize Window", Action::WindowMaximize),
@@ -64,6 +69,8 @@ enum OmniItem {
     Action {
         action: Action,
         label: &'static str,
+        /// The bound shortcut, pre-formatted for display (`"Ctrl+W"`).
+        shortcut: Option<String>,
     },
     Tab {
         id: TabId,
@@ -107,10 +114,18 @@ pub struct OmniboxOverlay {
     /// Recent distinct directories from the history log, most-recent first —
     /// the active tab's own directory already filtered out by the caller.
     dirs: Vec<String>,
+    /// Action → its shortcut, pre-formatted (`"Ctrl+Shift+T"`), from the live
+    /// config. Small (~25 entries); looked up by linear scan.
+    shortcuts: Vec<(Action, String)>,
 }
 
 impl OmniboxOverlay {
-    pub fn new(tabs: Vec<TabEntry>, active_tab: TabId, dirs: Vec<String>) -> Self {
+    pub fn new(
+        tabs: Vec<TabEntry>,
+        active_tab: TabId,
+        dirs: Vec<String>,
+        shortcuts: Vec<(Action, String)>,
+    ) -> Self {
         Self {
             query: String::new(),
             selected: 0,
@@ -119,7 +134,15 @@ impl OmniboxOverlay {
             tabs,
             active_tab,
             dirs,
+            shortcuts,
         }
+    }
+
+    fn shortcut_for(&self, action: Action) -> Option<String> {
+        self.shortcuts
+            .iter()
+            .find(|(a, _)| *a == action)
+            .map(|(_, s)| s.clone())
     }
 
     /// The four sections, ranked and concatenated, empty ones skipped.
@@ -130,7 +153,11 @@ impl OmniboxOverlay {
 
         let mut items = Vec::new();
         for &(label, action) in rank(&pattern, &mut matcher, PALETTE_ACTIONS, |a| a.0.to_owned()) {
-            items.push(OmniItem::Action { action, label });
+            items.push(OmniItem::Action {
+                action,
+                label,
+                shortcut: self.shortcut_for(action),
+            });
         }
         for entry in rank(&pattern, &mut matcher, &self.tabs, |e| {
             format!("{} {}", e.title, e.cwd.as_deref().unwrap_or(""))
@@ -356,9 +383,28 @@ fn draw_row(
     let text_y = rect.top() + if two_line { 6.0 } else { 5.0 };
 
     match item {
-        OmniItem::Action { label, .. } => {
+        OmniItem::Action {
+            label, shortcut, ..
+        } => {
             let g = p.layout_no_wrap((*label).to_owned(), FontId::proportional(13.0), s.text);
             p.galley(pos2(rect.left() + 14.0, text_y), g, s.text);
+            if let Some(sc) = shortcut {
+                let kg = p.layout_no_wrap(sc.clone(), FontId::proportional(11.0), s.text_muted);
+                let (pad, kh) = (6.0_f32, 16.0_f32);
+                let kw = kg.size().x + pad * 2.0;
+                let kx = rect.right() - 12.0 - kw;
+                let ky = rect.center().y - kh / 2.0;
+                p.rect_filled(
+                    Rect::from_min_size(pos2(kx, ky), vec2(kw, kh)),
+                    4.0,
+                    s.hover,
+                );
+                p.galley(
+                    pos2(kx + pad, ky + (kh - kg.size().y) / 2.0),
+                    kg,
+                    s.text_muted,
+                );
+            }
         }
         OmniItem::Tab { id, title, cwd } => {
             if *id == active_tab {
