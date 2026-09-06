@@ -1,23 +1,26 @@
 # pomptty
 
 [![CI](https://github.com/MartinThoma/pomptty/actions/workflows/ci.yml/badge.svg)](https://github.com/MartinThoma/pomptty/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/MartinThoma/pomptty?sort=semver)](https://github.com/MartinThoma/pomptty/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A minimal, Chrome-flavored terminal emulator: GPU-rendered, tabbed, and driven
-by a single JSON config file that reloads as you edit it.
+**pomptty** is a GPU-rendered terminal with a browser's manners: a command
+palette, real tabs, session restore, and a look that's sharp out of the box —
+all from one JSON file that reloads the moment you save it. No account, no
+telemetry, no AI.
 
-![pomptty showing a shell session in a tab, rendered with the Solarized Dark theme](docs/screenshot.png)
+![pomptty: a scripted session showing the powerline prompt, colored output, an LSP undercurl, box-drawing, a git graph, and the command palette](docs/demo.gif)
 
-pomptty is written in Rust on [`egui`](https://github.com/emilk/egui) +
+Written in Rust on [`egui`](https://github.com/emilk/egui) + a vendored fork of
 [`egui_term`](https://github.com/Harzu/egui_term), which wraps
-[`alacritty_terminal`](https://github.com/alacritty/alacritty) for VT parsing and
-the PTY. Linux and Windows are supported; macOS is on the
-[roadmap](ROADMAP.md). A few things are still Linux-only — see
-[Known issues](ROADMAP.md#known-issues) in the roadmap.
+[`alacritty_terminal`](https://github.com/alacritty/alacritty) for VT parsing
+and the PTY. **Linux** and **Windows** are supported; **macOS** builds and runs
+but hasn't had a hands-on pass. A few features are still Linux/macOS-only — see
+[Known issues](ROADMAP.md#known-issues).
 
 ## Contents
 
-- [Features](#features)
+- [Highlights](#highlights)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Shell integration](#shell-integration)
@@ -27,93 +30,92 @@ the PTY. Linux and Windows are supported; macOS is on the
 - [Roadmap](#roadmap)
 - [License](#license)
 
-## Features
+## Highlights
+
+### A browser-shaped workflow
 
 - **Command palette** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>) — one
-  input, fuzzy-filtered across four ranked sections at once: actions (each
-  with its keyboard shortcut), open tabs, command history, and recent
-  directories. <kbd>Enter</kbd> acts on whatever's selected — run the action,
-  switch tab, drop the command on the prompt, or `cd` the active tab there.
-- **Tabs** — open, close, switch, and drag-to-reorder by keyboard or mouse; each
-  tab shows the title set by the shell (OSC 0/2), the window title follows the
-  active tab, and a new tab opens in the active tab's working directory.
-  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> reopens the last closed tab,
-  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> opens a fuzzy tab switcher, and
-  right-clicking a tab gives rename / duplicate / close-others / reopen-closed
-  / color.
-- **Session restore** — quitting (or crashing) and relaunching reopens the same
-  tabs, in the same directories and order, with the same active tab and any
-  renames. On by default; turn it off with `"session": { "restore": false }`.
-- **Live configuration reload** — save `config.json` and the change applies
-  immediately (or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>). A
-  malformed file is never overwritten: the last good config is kept and the error
-  is shown.
-- **Theming** — four builtins (Solarized Dark/Light, plain dark/light) or a full
-  inline palette. The surrounding UI is tinted to match the terminal background.
-  Apps can recolour the palette / fg / bg / cursor at runtime (OSC 4/10/11/12),
-  so neovim colorschemes take effect.
-- **Layered keybindings** — your bindings sit on top of the defaults, so new
-  default shortcuts appear automatically and any default can be switched off.
-- **Fuzzy history search** (<kbd>Ctrl</kbd>+<kbd>R</kbd>) — an overlay ranked by
-  relevance, recency and frequency, showing each command's directory, exit
-  status and age; opt-in via a [one-line shell hook](#shell-integration).
-- **Long-command notifications** — a desktop notification when a command that
-  ran 5+ minutes (configurable) finishes while pomptty is unfocused, minimised,
-  or on another tab. Uses the same shell hook.
-- Font zoom, scrollback keys, and clear-screen.
-- Mouse selection with copy/paste
-  (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> /
-  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>); double/triple-click select a
-  word/line, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+drag selects a column; select-to-copy
-  and middle-click paste the X11 primary selection; bracketed paste so a
-  multi-line paste doesn't auto-run; OSC 52 so `tmux` / `vim` can copy to the
-  clipboard over SSH.
-- Custom font from a file path, with real bold/italic faces when installed;
-  underline (single / double / undercurl / dotted / dashed, with `\e[58m`
-  underline colour) and strikethrough — neovim / helix LSP squiggles render.
-- Box-drawing, block, shade and Powerline glyphs drawn by pomptty rather than
-  the font — lines join with no sub-pixel gap and stay crisp at any size.
-- Optional background image (dimmed, with a soft vignette) and, on
-  Wayland / macOS / Windows, window translucency.
-- A themed, shaped (block/beam/underline), gliding, blinking cursor — apps that
-  set their own style (`vim`'s insert-mode beam) override the configured
-  default.
-- OSC 8 hyperlinks underline on plain hover; <kbd>Ctrl</kbd>+click opens the
-  real target URI even when the visible text isn't a URL.
-- A confirmation prompt before closing a tab that still has a process running.
+  fuzzy input over four ranked sources at once: actions (each shown with its
+  shortcut), open tabs, shell history, and recent directories.
+  <kbd>Enter</kbd> runs the action, switches tab, drops the command on the
+  prompt, or `cd`s there.
+- **Tabs** — open, close, switch, drag-to-reorder; rename, duplicate, colour,
+  and reopen-closed from the right-click menu; a fuzzy tab switcher
+  (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>). A new tab starts in the
+  active tab's directory.
+- **Session restore** — quit or crash, relaunch, and the same tabs come
+  back: same directories, order, active tab, and renames.
+
+### One config file
+
+- A single **`config.json`** that applies the instant you save it (or
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>). A malformed file is reported,
+  never overwritten.
+- **Keybindings layer on the defaults** — override, add, or `"disabled"` any
+  chord; or bind a chord straight to bytes / an escape sequence with
+  `key_sends`.
+- **Themes** — four builtins or a full inline palette, with the surrounding
+  chrome tinted to match. Apps recolour the palette at runtime (OSC
+  4/10/11/12), so neovim colorschemes take hold.
+
+### A terminal that renders well
+
+- **Box-drawing, block, shade and Powerline glyphs drawn by pomptty** —
+  pixel-perfect joins at any size or font, no patched font needed.
+- Real **bold / italic** faces; **underline** (single, double, undercurl,
+  dotted, dashed, with `\e[58m` colour) and **strikethrough** — LSP squiggles
+  render.
+- A themed, gliding cursor; automatic **Nerd Font fallback** for icon glyphs;
+  **OSC 8 hyperlinks** (plain-hover underline, <kbd>Ctrl</kbd>+click opens);
+  optional dimmed **wallpaper** and, off X11, window **translucency**.
+
+### History & clipboard
+
+- An **opt-in shell hook** feeds a fuzzy <kbd>Ctrl</kbd>+<kbd>R</kbd> history
+  search ranked by relevance, recency and frequency — scoped to "this
+  directory" on a keypress.
+- A **desktop notification** when a long-running command finishes while
+  you're not looking.
+- **Select-to-copy** and middle-click paste (X11 primary selection);
+  bracketed paste with a multi-line confirm; **OSC 52** to copy out of
+  `tmux` / `vim` over SSH; <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+drag for a column.
+
+### Careful about the basics
+
+- Asks before closing a tab that still has a process running in it.
+- A **red border** while the shell — or `sudo -s` / `su` under it — is
+  running as `root`.
+- No network, no telemetry, no auto-update; runs entirely as your user.
+  [SECURITY.md](SECURITY.md) spells out every file it touches and how to
+  verify the rest.
 
 ## Installation
 
-Tagged builds — a `.deb`, an `.rpm`, a Windows `.exe` and a macOS tarball —
-are attached to each
-[GitHub Release](https://github.com/MartinThoma/pomptty/releases). To build
-from source instead:
+**Prebuilt:** a `.deb`, an `.rpm`, a Windows `.exe` and a macOS tarball are
+attached to every
+[GitHub Release](https://github.com/MartinThoma/pomptty/releases).
 
-### Prerequisites
-
-- A current stable **Rust** toolchain (2024 edition). Install it with
-  [rustup](https://rustup.rs/); a distro-packaged `cargo` is often too old.
-- A working GPU stack at run time. On Linux: Vulkan or OpenGL, plus the X11 or
-  Wayland client libraries — pomptty loads these dynamically, and a typical
-  desktop already has them. On Windows: DirectX or Vulkan, already present on
-  any current install — no extra packages needed either way.
-
-pomptty asks for a **low-power** GPU (usually the integrated one) — a terminal
-doesn't need a discrete card, and small dedicated GPUs can run out of VRAM.
-The chosen adapter is printed at startup (`GPU: …`). To override: set
-`WGPU_POWER_PREF=high` for the discrete GPU, or `WGPU_BACKEND=vulkan|gl|dx12`
-to pin a backend.
-
-### Build and run
+**From source:** with a [rustup](https://rustup.rs/) toolchain,
 
 ```sh
-git clone https://github.com/MartinThoma/pomptty
-cd pomptty
+git clone https://github.com/MartinThoma/pomptty && cd pomptty
 cargo run --release
 ```
 
-The first run writes a default `config.json` (see [Configuration](#configuration))
-and starts your `$SHELL`.
+The first run writes a default `config.json` (see
+[Configuration](#configuration)) and starts your `$SHELL`.
+
+### Prerequisites
+
+Building needs a **current stable Rust** (2024 edition) — a distro-packaged
+`cargo` is often too old. At run time pomptty needs a GPU stack (Vulkan or
+OpenGL on Linux, plus the X11 / Wayland client libraries; DirectX or Vulkan on
+Windows) — loaded dynamically, and already present on a typical desktop.
+
+pomptty asks for a **low-power** GPU (usually the integrated one) — a terminal
+doesn't need a discrete card, and small dedicated GPUs can run out of VRAM.
+The chosen adapter is printed at startup (`GPU: …`); `WGPU_POWER_PREF=high` or
+`WGPU_BACKEND=vulkan|gl|dx12` override it.
 
 ### Make targets
 
@@ -340,8 +342,9 @@ touches, and how to verify all of it, plus how to report a vulnerability.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Up next (M4/M5): a design pass on the chrome, and
-command *blocks* — navigable, foldable, rerunnable prompt→output units.
+See [ROADMAP.md](ROADMAP.md). The next big piece is **M5 — command blocks**:
+treating each prompt→command→output span as a unit you can fold, jump between,
+copy, and rerun.
 
 ## License
 
