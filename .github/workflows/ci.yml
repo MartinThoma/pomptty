@@ -17,14 +17,14 @@ jobs:
     name: "cargo-deny (advisories + licenses + sources)"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   test-linux:
     name: "Linux: fmt + clippy + test"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # pomptty loads every windowing/GPU library at runtime (dlopen), so the
       # build itself needs no -dev packages beyond what the runner ships with.
@@ -53,7 +53,7 @@ jobs:
     name: "Windows: clippy + test + build"
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -76,7 +76,7 @@ jobs:
     name: "macOS: clippy + test + build"
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -98,7 +98,7 @@ jobs:
       # Not a signed/notarized .app bundle — a raw binary, downloadable from
       # this run's summary page for a quick manual smoke test.
       - name: Upload pomptty binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pomptty-macos
           path: target/release/pomptty
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-linux
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -139,14 +139,14 @@ jobs:
           cargo generate-rpm
 
       - name: Upload .deb
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pomptty-deb
           path: target/debian/*.deb
           if-no-files-found: error
 
       - name: Upload .rpm
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pomptty-rpm
           path: target/generate-rpm/*.rpm
