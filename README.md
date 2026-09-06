@@ -21,6 +21,7 @@ but hasn't had a hands-on pass. A few features are still Linux/macOS-only — se
 ## Contents
 
 - [Highlights](#highlights)
+- [How it compares](#how-it-compares)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Shell integration](#shell-integration)
@@ -88,6 +89,33 @@ but hasn't had a hands-on pass. A few features are still Linux/macOS-only — se
 - No network, no telemetry, no auto-update; runs entirely as your user.
   [SECURITY.md](SECURITY.md) spells out every file it touches and how to
   verify the rest.
+
+## How it compares
+
+pomptty is far younger and smaller than any of these, and the mature options
+do plenty it doesn't (splits, ligatures, inline images, scrollback search).
+The table is about *shape* — where pomptty leans is a built-in workflow layer
+(command palette, ranked history, session restore) over a plain JSON file,
+rather than a scripting config or a multiplexer.
+
+| | pomptty | [Alacritty](https://alacritty.org/) | [kitty](https://sw.kovidgoyal.net/kitty/) | [WezTerm](https://wezfurlong.org/wezterm/) | [Ghostty](https://ghostty.org/) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Engine | Rust · egui/wgpu | Rust · GL | C/Python · GL | Rust · wgpu | Zig · native |
+| Config | JSON | TOML | `kitty.conf` | Lua | `ghostty` |
+| Live config reload | auto | auto | keybind | auto | keybind |
+| Tabs | ✅ | ❌ *(use tmux/WM)* | ✅ | ✅ | ✅ |
+| Splits / panes | ❌ *(planned)* | ❌ | ✅ | ✅ | ✅ |
+| Command palette | ✅ | ❌ | ❌ | ✅ | ✅ |
+| Fuzzy <kbd>Ctrl</kbd>+<kbd>R</kbd> history | ✅ *(ranked, dir-scoped)* | ❌ | ❌ | ❌ | ❌ |
+| Session restore | ✅ built-in | ❌ | ✅ | plugin | OS-level *(macOS)* |
+| Styled underlines / undercurl | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Ligatures | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Inline images (sixel / kitty) | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Scrollback search | ❌ | ✅ | ✅ | ✅ | ❌ |
+| Platforms | Linux, Windows <sup>†</sup> | Linux, macOS, Windows | Linux, macOS | Linux, macOS, Windows | Linux, macOS |
+| License | MIT | Apache-2.0 | GPL-3.0 | MIT | MIT |
+
+<sup>†</sup> macOS builds and runs but hasn't had a hands-on pass.
 
 ## Installation
 
