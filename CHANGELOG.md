@@ -7,6 +7,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+### Added
+
+- Command palette: "Help: About pomptty" — a dialog with the version,
+  repository and license, and a "Copy version" button. Also bindable as
+  `"about"`.
+
+### Fixed
+
+- Paste no longer runs on its own. A trailing newline is stripped from every
+  paste, so a whole-line copy (`git status\n`) lands at the prompt instead of
+  executing — including inside bracketed paste, where zsh's
+  `bracketed-paste-magic` would otherwise accept it. The multi-line confirm
+  dialog now also appears for bracketed-paste shells, since the buffered lines
+  still run together on the next Return.
+
 ## [0.1.0]
 
 First tagged release.

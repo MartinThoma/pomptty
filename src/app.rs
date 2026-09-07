@@ -146,6 +146,8 @@ pub struct PompttyApp {
     /// The tab a rename dialog is open for, and its live edit buffer.
     rename_target: Option<TabId>,
     rename_buf: String,
+    /// Whether the "About pomptty" dialog is showing.
+    about_open: bool,
     /// The last time the open-tabs session was checked against disk.
     session_last_saved: Instant,
     /// The last time each tab's root status was re-checked.
@@ -280,6 +282,7 @@ impl PompttyApp {
             omnibox: None,
             rename_target: None,
             rename_buf: String::new(),
+            about_open: false,
             session_last_saved: Instant::now(),
             root_checked_at: Instant::now()
                 .checked_sub(ROOT_POLL_INTERVAL)
@@ -656,7 +659,7 @@ impl PompttyApp {
             return;
         };
 
-        let lines: Vec<&str> = text.split('\n').collect();
+        let lines: Vec<&str> = text.trim_end_matches(['\r', '\n']).split('\n').collect();
         let n = lines.len();
         let preview: String = lines
             .iter()
@@ -702,7 +705,7 @@ impl PompttyApp {
                 ui.add_space(6.0);
                 ui.label(
                     egui::RichText::new(
-                        "The shell runs each line as it arrives — the last one right away.",
+                        "Each line is its own command — the earlier ones run the moment they arrive.",
                     )
                     .color(s.text_muted),
                 );
@@ -823,6 +826,80 @@ impl PompttyApp {
             self.tabs[idx].manual_title = (!buf.is_empty()).then(|| buf.to_owned());
         } else if cancel || modal.should_close() {
             self.rename_target = None;
+        }
+    }
+
+    /// Draw the "About pomptty" dialog (version / repository / license), opened
+    /// from the command palette's "Help: About pomptty".
+    fn show_about_dialog(&mut self, ctx: &egui::Context) {
+        const VERSION: &str = env!("CARGO_PKG_VERSION");
+        const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
+        const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+        const LICENSE: &str = env!("CARGO_PKG_LICENSE");
+
+        let s = Surfaces::from_theme(&self.config.theme);
+        let mut close = false;
+        let vis = ctx.animate_bool_with_time(egui::Id::new("pomptty_about_anim"), true, 0.11);
+        let shadow_alpha = if self.config.theme.is_dark() { 130 } else { 55 };
+        let frame = egui::Frame::new()
+            .fill(s.raised)
+            .stroke(egui::Stroke::new(1.0, s.border))
+            .corner_radius(12)
+            .inner_margin(egui::Margin::same(20))
+            .shadow(egui::Shadow {
+                offset: [0, 12],
+                blur: 34,
+                spread: 0,
+                color: egui::Color32::from_black_alpha(shadow_alpha),
+            });
+        let modal = egui::Modal::new(egui::Id::new("pomptty_about"))
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.set_opacity(vis);
+                ui.set_width(360.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("pomptty").size(18.0).strong());
+                    ui.label(
+                        egui::RichText::new(format!("v{VERSION}"))
+                            .size(14.0)
+                            .color(s.text_muted),
+                    );
+                });
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(DESCRIPTION).color(s.text_muted));
+                ui.add_space(12.0);
+                egui::Grid::new("pomptty_about_grid")
+                    .num_columns(2)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Repository").color(s.text_muted));
+                        ui.hyperlink_to(REPOSITORY.trim_start_matches("https://"), REPOSITORY);
+                        ui.end_row();
+                        ui.label(egui::RichText::new("License").color(s.text_muted));
+                        ui.label(LICENSE);
+                        ui.end_row();
+                    });
+                ui.add_space(16.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let done = egui::Button::new(
+                        egui::RichText::new("Close").color(crate::ui::style::on_accent(s.accent)),
+                    )
+                    .fill(s.accent)
+                    .corner_radius(7);
+                    if ui.add(done).clicked() {
+                        close = true;
+                    }
+                    if ui
+                        .add(egui::Button::new("Copy version").fill(egui::Color32::TRANSPARENT))
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(format!("pomptty {VERSION}"));
+                    }
+                });
+            });
+
+        if close || modal.should_close() {
+            self.about_open = false;
         }
     }
 
@@ -1181,11 +1258,14 @@ impl PompttyApp {
         }
     }
 
-    /// Pull a `Ctrl+Shift+V` of multi-line text out of the input queue when it
-    /// would land in a shell that hasn't enabled bracketed paste — where each
-    /// line runs on arrival — and stage it for [`Self::show_paste_confirmation`]
-    /// instead. Single-line pastes, and pastes into an app that turned on
-    /// bracketed paste (it holds the text for review), pass straight through.
+    /// Pull a `Ctrl+Shift+V` of multi-line text out of the input queue and stage
+    /// it for [`Self::show_paste_confirmation`] instead of letting it reach the
+    /// shell. A multi-line paste is exactly the moment to pause: without
+    /// bracketed paste each line runs the instant it arrives, and even with it
+    /// the buffered lines all run together on the next Return (and zsh's
+    /// `bracketed-paste-magic` can accept them on its own). A single line —
+    /// after any trailing newline, which the paste path drops — passes
+    /// straight through.
     fn intercept_multiline_paste(&mut self, ctx: &egui::Context) {
         if !self.config.paste.confirm_multiline || self.pending_paste.is_some() {
             return;
@@ -1196,22 +1276,13 @@ impl PompttyApp {
         }
         let Some(text) = ctx.input(|i| {
             i.events.iter().find_map(|e| match e {
-                egui::Event::Paste(t) if t.contains('\n') => Some(t.clone()),
+                egui::Event::Paste(t) if is_multiline_paste(t) => Some(t.clone()),
                 _ => None,
             })
         }) else {
             return;
         };
-        let tab = &self.tabs[self.active];
-        if tab
-            .backend
-            .last_content()
-            .terminal_mode
-            .contains(TerminalMode::BRACKETED_PASTE)
-        {
-            return;
-        }
-        let id = tab.id;
+        let id = self.tabs[self.active].id;
         ctx.input_mut(|i| {
             i.events
                 .retain(|e| !matches!(e, egui::Event::Paste(t) if *t == text));
@@ -1249,6 +1320,7 @@ impl PompttyApp {
                 self.tile_window(ctx, action == Action::WindowRightHalf);
             }
             Action::OpenScrollback => self.open_scrollback(),
+            Action::AboutPomptty => self.about_open = true,
             // Inert here: handled by the terminal widget, or filtered out before
             // dispatch (see `Action::is_active` and `KeyBindings::compile`).
             Action::Copy | Action::Paste | Action::Disabled => {}
@@ -1311,6 +1383,7 @@ impl eframe::App for PompttyApp {
         // belongs to it.
         if self.pending_close.is_none()
             && self.pending_paste.is_none()
+            && !self.about_open
             && self.history_overlay.is_none()
             && self.rename_target.is_none()
             && self.tab_search.is_none()
@@ -1427,6 +1500,12 @@ impl eframe::App for PompttyApp {
             self.show_paste_confirmation(&ctx);
         } else {
             ctx.animate_bool_with_time(egui::Id::new("pomptty_paste_anim"), false, 0.0);
+        }
+
+        if self.about_open {
+            self.show_about_dialog(&ctx);
+        } else {
+            ctx.animate_bool_with_time(egui::Id::new("pomptty_about_anim"), false, 0.0);
         }
 
         // Rendered before the other overlays: picking "Search Tabs" / "Search
@@ -1547,6 +1626,7 @@ impl eframe::App for PompttyApp {
                     .set_focus(
                         self.pending_close.is_none()
                             && self.pending_paste.is_none()
+                            && !self.about_open
                             && self.history_overlay.is_none()
                             && self.rename_target.is_none()
                             && self.tab_search.is_none()
@@ -1575,12 +1655,7 @@ impl eframe::App for PompttyApp {
                     && !mouse_mode
                     && let Some(text) = self.primary.get()
                 {
-                    let bracketed = tab
-                        .backend
-                        .last_content()
-                        .terminal_mode
-                        .contains(TerminalMode::BRACKETED_PASTE);
-                    if self.config.paste.confirm_multiline && text.contains('\n') && !bracketed {
+                    if self.config.paste.confirm_multiline && is_multiline_paste(&text) {
                         self.pending_paste = Some((tab.id, text));
                     } else {
                         tab.backend.process_command(BackendCommand::Paste(text));
@@ -1727,6 +1802,13 @@ fn resize_edges(ui: &egui::Ui, ctx: &egui::Context) {
 /// `len` existing tabs — clamped so a stale or out-of-range request can't panic.
 fn insert_slot(index: Option<usize>, len: usize) -> usize {
     index.unwrap_or(len).min(len)
+}
+
+/// Whether a paste carries more than one command line, and so deserves the
+/// confirmation dialog. A trailing newline doesn't count — the paste path
+/// drops it — so a whole-line copy like `"git status\n"` still pastes silently.
+fn is_multiline_paste(text: &str) -> bool {
+    text.trim_end_matches(['\r', '\n']).contains('\n')
 }
 
 /// `color` at the given alpha fraction, keeping its RGB. Used for the
@@ -2056,9 +2138,21 @@ fn notify_command_finished(rec: &crate::history::CommandRecord) {
 #[cfg(test)]
 mod tests {
     use super::{
-        FONT_MAX, FONT_MIN, closed_tab_slot, cover_uv, format_duration, insert_slot, remap_index,
-        snap_zoom,
+        FONT_MAX, FONT_MIN, closed_tab_slot, cover_uv, format_duration, insert_slot,
+        is_multiline_paste, remap_index, snap_zoom,
     };
+
+    #[test]
+    fn multiline_paste_ignores_a_trailing_newline() {
+        assert!(!is_multiline_paste("git status"));
+        assert!(
+            !is_multiline_paste("git status\n"),
+            "whole-line copy is one line"
+        );
+        assert!(!is_multiline_paste("git status\r\n"));
+        assert!(is_multiline_paste("cd /tmp\nls"));
+        assert!(is_multiline_paste("cd /tmp\nls\n"));
+    }
 
     #[test]
     fn cover_uv_center_crops_the_longer_axis() {

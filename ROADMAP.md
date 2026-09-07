@@ -270,13 +270,15 @@ bounces off it.
 
 - [x] **bracketed paste**: paste is wrapped in `\e[200~…\e[201~` when the app
       set `\e[?2004h` (embedded `ESC`/`ST` stripped so it can't break out);
-      otherwise newlines are normalised to `\r`, matching Alacritty. Multi-line
-      paste no longer auto-runs in a shell. (`paste_payload` in the
-      `egui_term` fork's `view.rs`.)
-- [x] paste safety: a confirm dialog (line count + preview) before pasting
-      newline-containing text into a shell that hasn't turned on bracketed
-      paste — where each line runs on arrival. Covers `Ctrl+Shift+V` and
-      middle-click; single-line pastes and bracketed-paste apps pass straight
+      otherwise newlines are normalised to `\r`, matching Alacritty. A trailing
+      newline is dropped in both modes, so a whole-line copy pastes at the
+      prompt instead of pressing Return (a plain shell runs it directly; zsh's
+      `bracketed-paste-magic` accepts it even inside the brackets).
+      (`paste_payload` in the `egui_term` fork's `backend/mod.rs`.)
+- [x] paste safety: a confirm dialog (line count + preview) before a multi-line
+      `Ctrl+Shift+V` or middle-click paste reaches the shell — whether or not
+      bracketed paste is on, since the buffered lines still run together on the
+      next Return. A single line (after the trailing newline) passes straight
       through. `paste.confirm_multiline` config (default `true`)
 - [x] **OSC 52 clipboard**: apps setting the system clipboard (tmux, neovim,
       `vim` `+clipboard`) — the main way to copy *out of* an SSH session.

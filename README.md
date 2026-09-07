@@ -201,6 +201,7 @@ its current shortcut.
 | `window-maximize` / `window-restore` | — | also in the palette as "View: Maximize / Restore Window" |
 | `window-left-half` / `window-right-half` | — | un-maximize and tile the window to that half of the screen; "View: Move to Left / Right Half" |
 | `open-scrollback` | — | dump the active tab's scrollback to a temp file and open it in your default editor; "Terminal: Open Scrollback in Editor" |
+| `about` | — | show the version / repository / license dialog; "Help: About pomptty" |
 | `disabled` | — | suppresses a default binding |
 
 To send a raw byte string or escape sequence to the shell instead of running
@@ -290,7 +291,7 @@ config.
 | `history` | `enabled` (default `true`) — whether <kbd>Ctrl</kbd>+<kbd>R</kbd> opens the overlay (see [Shell integration](#shell-integration)); `max_results` (default `50`) — rows shown at once. |
 | `session` | `restore` (default `true`) — reopen the last run's tabs, directories and renames on launch; also stops pomptty recording them when `false`. Saved to `session.json` next to the history logs. |
 | `cursor` | `shape` (default `"block"`; also `"beam"`, `"underline"`) and `blink` (default `true`) — the cursor's appearance before an app sets its own via DECSCUSR (`vim`'s insert-mode beam, for instance, still overrides this at runtime). |
-| `paste` | `confirm_multiline` (default `true`) — ask before pasting newline-containing text into a shell that hasn't enabled bracketed paste, where each line would run on arrival. |
+| `paste` | `confirm_multiline` (default `true`) — show a confirm dialog (line count + preview) before a multi-line paste reaches the shell, where the lines run as separate commands. A trailing newline is always stripped, so a whole-line copy pastes at the prompt instead of running. |
 | `notifications` | `long_command_secs` (default `300`) — post a desktop notification when a command that ran at least this long finishes while pomptty is unfocused, minimised, or on another tab; `0` disables it. Needs the [shell integration](#shell-integration). |
 | `clipboard` | `osc52_read` (default `false`) — let terminal apps *read* the system clipboard via OSC 52 (`\e]52;c;?`); the *copy* direction is always allowed. Off by default, matching Alacritty. New tabs pick up a change. |
 | `security` | `superuser_warning` (default `true`) — red terminal outline + tab dot while the shell (or `sudo -s` / `su` / a long `sudo …` under it) is running as `root`. Linux and macOS. |

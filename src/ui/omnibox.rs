@@ -50,6 +50,7 @@ const PALETTE_ACTIONS: &[(&str, Action)] = &[
         "Terminal: Open Scrollback in Editor",
         Action::OpenScrollback,
     ),
+    ("Help: About pomptty", Action::AboutPomptty),
 ];
 
 /// What the palette decided this frame.

@@ -58,6 +58,9 @@ pub enum Action {
     /// Dump the scrollback of the active tab to a temp file and open it with
     /// the system's default handler.
     OpenScrollback,
+    /// Show the "About pomptty" dialog (version, repository, license). Not
+    /// bound by default — reachable from the command palette.
+    AboutPomptty,
     /// Turn a default binding off. Put `"<chord>": "disabled"` in the config to
     /// suppress a shortcut that would otherwise come from the defaults.
     Disabled,
@@ -91,6 +94,7 @@ impl Action {
             Action::WindowLeftHalf => "window-left-half".into(),
             Action::WindowRightHalf => "window-right-half".into(),
             Action::OpenScrollback => "open-scrollback".into(),
+            Action::AboutPomptty => "about".into(),
             Action::Disabled => "disabled".into(),
         }
     }
@@ -121,6 +125,7 @@ impl Action {
             "window-left-half" => Action::WindowLeftHalf,
             "window-right-half" => Action::WindowRightHalf,
             "open-scrollback" => Action::OpenScrollback,
+            "about" => Action::AboutPomptty,
             "disabled" => Action::Disabled,
             other => Action::GotoTab(other.strip_prefix("goto-tab-")?.parse().ok()?),
         })
@@ -504,6 +509,7 @@ mod tests {
             Action::WindowMaximize,
             Action::WindowLeftHalf,
             Action::OpenScrollback,
+            Action::AboutPomptty,
             Action::Disabled,
         ] {
             let json = serde_json::to_string(&a).unwrap();

@@ -51,7 +51,15 @@ pub enum BackendCommand {
 /// `\e[200~ … \e[201~` and any embedded `ESC` / `ST` is stripped, so the
 /// pasted data can't break out of the brackets and drive the terminal.
 /// Otherwise newlines are normalised to `\r`.
+///
+/// A trailing newline is dropped first, in both modes: it's almost always an
+/// artifact of how the text was selected (a whole line, a fenced code block)
+/// rather than a request to press Return, and leaving it in makes the paste
+/// submit the line on its own — directly in a plain shell, and even inside the
+/// brackets under zsh's `bracketed-paste-magic` (oh-my-zsh), which treats a
+/// pasted trailing newline as accept-line. Interior newlines are kept.
 fn paste_payload(text: &str, bracketed: bool) -> Vec<u8> {
+    let text = text.trim_end_matches(['\r', '\n']);
     if bracketed {
         let filtered = text.replace(['\x1b', '\u{9c}'], "");
         let mut out = Vec::with_capacity(filtered.len() + 12);
@@ -654,5 +662,18 @@ mod tests {
             paste_payload("a\x1b[201~b", true),
             b"\x1b[200~a[201~b\x1b[201~"
         );
+    }
+
+    #[test]
+    fn trailing_newline_is_dropped_so_a_paste_never_hits_return() {
+        // A whole-line copy ("git status\n") must land at the prompt, not run.
+        assert_eq!(paste_payload("git status\n", false), b"git status");
+        assert_eq!(
+            paste_payload("git status\r\n", true),
+            b"\x1b[200~git status\x1b[201~"
+        );
+        // Interior newlines survive; only the trailing run is trimmed.
+        assert_eq!(paste_payload("a\nb\n\n", false), b"a\rb");
+        assert_eq!(paste_payload("a\nb\n", true), b"\x1b[200~a\nb\x1b[201~");
     }
 }

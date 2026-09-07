@@ -12,7 +12,8 @@
 //!   box-drawing / block / shade / Powerline glyphs (`box_drawing`), a
 //!   `bold_is_bright` option, and `set_bg_opacity` (skip the opaque grid
 //!   background for a translucent window / wallpaper).
-//! - M9: bracketed paste (`BackendCommand::Paste` / `paste_payload`);
+//! - M9: bracketed paste (`BackendCommand::Paste` / `paste_payload`, which
+//!   also drops a trailing newline so a whole-line paste never presses Return);
 //!   OSC 4/10/11/12 dynamic colors (`RenderableContent::colors` +
 //!   `resolve_color`), plus the query form answered via `theme_rgb` +
 //!   `BackendCommand::Report`; OSC 52 read direction (`BackendSettings::
