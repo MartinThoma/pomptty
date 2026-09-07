@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-// pomptty's own code is safe Rust. The only exceptions are the two
-// `set_var` blocks in `export_env` below, each individually `#[allow]`ed and
-// `// SAFETY`-commented — so `rg 'allow\(unsafe_code\)' src/` shows every one.
+// pomptty's own code is 100% safe Rust — no `unsafe` blocks, no
+// `#[allow(unsafe_code)]`. The shell environment is passed to the child
+// process (`terminal::shell_env`), not set with `std::env::set_var`.
 #![deny(unsafe_code)]
 
 mod app;
@@ -49,8 +49,6 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<()> {
-    export_env();
-
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("pomptty=info,warn"),
     )
@@ -119,30 +117,6 @@ fn run() -> Result<()> {
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
 
     Ok(())
-}
-
-/// Set up the environment that shells we spawn inherit. Called once, before any
-/// thread or `eframe` starts.
-///
-/// `egui_term` never sets `TERM`/`COLORTERM` itself, so without this the shell
-/// would inherit whatever launched pomptty (often wrong, or unset — which breaks
-/// line editing, `Ctrl+R`, colors). `xterm-256color` is the safe baseline the
-/// backend emulates.
-#[allow(unsafe_code)]
-fn export_env() {
-    // SAFETY: `main` is still single-threaded here — nothing else reads or
-    // writes the environment until `eframe::run_native` below.
-    unsafe {
-        std::env::set_var("TERM", "xterm-256color");
-        std::env::set_var("COLORTERM", "truecolor");
-        std::env::set_var("POMPTTY", "1");
-    }
-    if let Some(dir) = history::history_dir()
-        && std::fs::create_dir_all(&dir).is_ok()
-    {
-        // SAFETY: see above.
-        unsafe { std::env::set_var("POMPTTY_HISTORY_DIR", &dir) };
-    }
 }
 
 fn print_integration(shell: Option<&str>) -> ExitCode {

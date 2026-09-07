@@ -94,6 +94,7 @@ impl TerminalTab {
                 shell,
                 args: shell_args,
                 working_directory: cwd.filter(|p| p.is_dir()),
+                env: shell_env(),
                 cursor_shape,
                 cursor_blinking,
                 osc52_read,
@@ -159,6 +160,34 @@ impl TerminalTab {
     pub fn refresh_root_status(&mut self) {
         self.is_root = tab_runs_as_root(self.backend.pty_id());
     }
+}
+
+/// Environment for the shells we spawn, layered on top of what pomptty
+/// inherited. Set on the child process only (via `Command::env` inside
+/// `alacritty_terminal`), never with `std::env::set_var` — so pomptty's own
+/// environment, and anything else it execs (`xdg-open`, `$EDITOR`, `ps`),
+/// are untouched, and there's no cross-thread `setenv` hazard.
+///
+/// - `TERM` / `COLORTERM`: `egui_term` emulates `xterm-256color` with 24-bit
+///   colour; without these the shell inherits whatever launched pomptty
+///   (often wrong or unset, which breaks line editing, `Ctrl+R`, colours).
+/// - `POMPTTY` / `POMPTTY_HISTORY_DIR`: consumed by the shell-integration
+///   hook (`--print-integration`) to record command history.
+fn shell_env() -> std::collections::HashMap<String, String> {
+    let mut env = std::collections::HashMap::from([
+        ("TERM".to_owned(), "xterm-256color".to_owned()),
+        ("COLORTERM".to_owned(), "truecolor".to_owned()),
+        ("POMPTTY".to_owned(), "1".to_owned()),
+    ]);
+    if let Some(dir) = crate::history::history_dir()
+        && std::fs::create_dir_all(&dir).is_ok()
+    {
+        env.insert(
+            "POMPTTY_HISTORY_DIR".to_owned(),
+            dir.to_string_lossy().into_owned(),
+        );
+    }
+    env
 }
 
 /// The shell to spawn when nothing is configured and `$SHELL` is unset.

@@ -25,6 +25,10 @@
 //!   being over the grid (`process_input`) — so you can type as soon as the
 //!   window is focused. Mouse events still require the pointer / an active
 //!   drag.
+//! - `BackendSettings::env`: extra environment for the spawned shell,
+//!   applied to the child via `tty::Options::env` (`Command::env`) so the
+//!   host process's environment is never mutated — pomptty sets `TERM` /
+//!   `COLORTERM` / `POMPTTY*` this way instead of `std::env::set_var`.
 //!
 //! See pomptty's `ROADMAP.md` for the reasoning. Not otherwise kept in sync
 //! with upstream.

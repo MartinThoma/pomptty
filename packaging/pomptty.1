@@ -102,10 +102,11 @@ is not set in the configuration (falling back to
 .IR /bin/bash ).
 .TP
 .B TERM ", " COLORTERM
-Exported to the shell as
+Set for the spawned shell (only) to
 .B xterm\-256color
 and
-.BR truecolor .
+.BR truecolor ;
+pomptty's own environment is left untouched.
 .TP
 .B POMPTTY
 Set to

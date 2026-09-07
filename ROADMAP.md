@@ -251,7 +251,10 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 - [x] security & safety: `SECURITY.md` (what pomptty does/doesn't do, files
       touched, how to verify, how to report), a `cargo deny` supply-chain job
       in CI (advisories/licenses/sources) with a committed `deny.toml`,
-      `#![deny(unsafe_code)]` on pomptty's own crate, and a red terminal
+      `#![deny(unsafe_code)]` on pomptty's own crate with zero
+      `#[allow(unsafe_code)]` exceptions (the spawned shell's `TERM` /
+      `COLORTERM` / `POMPTTY*` env goes through `Command::env` via
+      `BackendSettings::env`, not `std::env::set_var`), and a red terminal
       outline + tab dot while the shell (or `sudo -s` / `su` / a long
       `sudo …` under it) runs as `root` — `security.superuser_warning`
       config, Linux and macOS. Still open: Windows privilege detection,

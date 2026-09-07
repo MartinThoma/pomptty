@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use alacritty_terminal::vte::ansi::CursorShape;
@@ -9,6 +10,10 @@ pub struct BackendSettings {
     pub shell: String,
     pub args: Vec<String>,
     pub working_directory: Option<PathBuf>,
+    /// Extra environment variables for the spawned shell (`TERM`, `COLORTERM`,
+    /// …). Applied to the child process only — via `Command::env`, not
+    /// `std::env::set_var` — so the host process's environment is untouched.
+    pub env: HashMap<String, String>,
     /// The cursor shape/blink to start with. An app that sets its own via
     /// DECSCUSR (vim's insert-mode beam, say) overrides this at runtime —
     /// it's only the default before anything has.
@@ -26,6 +31,7 @@ impl Default for BackendSettings {
             shell: DEFAULT_SHELL.to_string(),
             args: vec![],
             working_directory: None,
+            env: HashMap::new(),
             cursor_shape: CursorShape::Block,
             cursor_blinking: true,
             osc52_read: false,

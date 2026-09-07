@@ -362,9 +362,9 @@ request.
 
 pomptty is **local-only** — no network connections, no telemetry, no
 auto-update — and runs entirely as your user with no elevated privileges. Its
-own code is safe Rust bar two documented `env::set_var` blocks
-(`#![deny(unsafe_code)]` enforces it), and every dependency is checked for
-advisories, licenses and provenance by `cargo deny` on each push.
+own code is 100% safe Rust, no `unsafe` at all (`#![deny(unsafe_code)]` with no
+exceptions), and every dependency is checked for advisories, licenses and
+provenance by `cargo deny` on each push.
 
 [SECURITY.md](SECURITY.md) spells out exactly what it does, which files it
 touches, and how to verify all of it, plus how to report a vulnerability.

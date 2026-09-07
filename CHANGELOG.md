@@ -7,6 +7,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+### Changed
+
+- pomptty's own crate is now 100% safe Rust — the last `unsafe` blocks (the
+  startup `std::env::set_var` calls) are gone. The spawned shell's `TERM` /
+  `COLORTERM` / `POMPTTY` / `POMPTTY_HISTORY_DIR` are passed to the child
+  process via `Command::env`, not set on pomptty's process. `#![deny(unsafe_code)]`
+  now has zero `#[allow]` exceptions.
+
 ## [0.1.1] - 2026-09-07
 
 ### Added

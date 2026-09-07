@@ -76,7 +76,7 @@ git or binary dependency.
 # every dependency: advisory-clean, permissively licensed, from crates.io
 cargo install cargo-deny --locked && cargo deny check
 
-# pomptty's own unsafe code — exactly two blocks, both env setup at startup
+# pomptty's own unsafe code — there is none
 rg 'allow\(unsafe_code\)|unsafe ' src/
 
 # the whole dependency graph
@@ -85,8 +85,10 @@ cargo tree
 
 `cargo deny check` also runs on every push and pull request
 (`.github/workflows/ci.yml`), and `src/main.rs` carries
-`#![deny(unsafe_code)]` so the two `#[allow(unsafe_code)]` blocks are the
-only ones the compiler will accept.
+`#![deny(unsafe_code)]` with no `#[allow(unsafe_code)]` escape hatches —
+the shell's environment (`TERM`, `COLORTERM`, …) is handed to the child
+process via `Command::env` (`terminal::shell_env`), never set on pomptty's
+own process.
 
 ## Safety features
 
