@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-07
+
 ### Added
 
 - Command palette: "Help: About pomptty" — a dialog with the version,
@@ -75,5 +77,6 @@ First tagged release.
 - `SECURITY.md`, a `cargo deny` supply-chain CI job, `#![deny(unsafe_code)]`
   on pomptty's own crate, and a red superuser warning border.
 
-[Unreleased]: https://github.com/MartinThoma/pomptty/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/MartinThoma/pomptty/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/MartinThoma/pomptty/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/MartinThoma/pomptty/releases/tag/v0.1.0

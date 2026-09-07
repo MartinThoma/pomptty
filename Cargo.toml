@@ -5,7 +5,7 @@ members = [".", "vendor/egui_term"]
 
 [package]
 name = "pomptty"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Minimal, Chrome-flavored terminal emulator"
 license = "MIT"

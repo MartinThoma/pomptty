@@ -1,3 +1,13 @@
+pomptty (0.1.1-1) unstable; urgency=low
+
+  * Paste no longer runs on its own: a trailing newline is stripped from
+    every paste, and the multi-line confirm dialog now covers
+    bracketed-paste shells too.
+  * Command palette: "Help: About pomptty" dialog (version / repository /
+    license).
+
+ -- Martin Thoma <info@martin-thoma.de>  Mon, 07 Sep 2026 12:00:00 +0000
+
 pomptty (0.1.0-1) unstable; urgency=low
 
   * Initial release.
