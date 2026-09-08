@@ -187,7 +187,9 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
       M5 exists.
 - [x] **directory bookmarks**: `bookmarks` config map (`name → path`, `~`
       expanded), each surfaced in the palette as `Jump to: <name>` →
-      `cd`s the active tab (`Config::Bookmarks`, `OmniItem::Bookmark`)
+      `cd`s the active tab; `Bookmarks: Create` in the palette saves the
+      active tab's cwd back to `config.json` (`Config::Bookmarks`,
+      `OmniItem::Bookmark`, `Action::BookmarkDir`)
 - [x] reopen closed tab (`ctrl+shift+t`: reopens the last closed tab in its old
       slot and directory, or opens a plain new tab when there's nothing to
       reopen), recently-closed list (right-click a tab → "Reopen closed")

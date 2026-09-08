@@ -61,6 +61,10 @@ pub enum Action {
     /// Show the "About pomptty" dialog (version, repository, license). Not
     /// bound by default — reachable from the command palette.
     AboutPomptty,
+    /// Save the active tab's working directory to `config.bookmarks` (asks for
+    /// a name). Not bound by default — reachable from the command palette as
+    /// "Bookmarks: Create".
+    BookmarkDir,
     /// Turn a default binding off. Put `"<chord>": "disabled"` in the config to
     /// suppress a shortcut that would otherwise come from the defaults.
     Disabled,
@@ -95,6 +99,7 @@ impl Action {
             Action::WindowRightHalf => "window-right-half".into(),
             Action::OpenScrollback => "open-scrollback".into(),
             Action::AboutPomptty => "about".into(),
+            Action::BookmarkDir => "bookmark-dir".into(),
             Action::Disabled => "disabled".into(),
         }
     }
@@ -126,6 +131,7 @@ impl Action {
             "window-right-half" => Action::WindowRightHalf,
             "open-scrollback" => Action::OpenScrollback,
             "about" => Action::AboutPomptty,
+            "bookmark-dir" => Action::BookmarkDir,
             "disabled" => Action::Disabled,
             other => Action::GotoTab(other.strip_prefix("goto-tab-")?.parse().ok()?),
         })
@@ -510,6 +516,7 @@ mod tests {
             Action::WindowLeftHalf,
             Action::OpenScrollback,
             Action::AboutPomptty,
+            Action::BookmarkDir,
             Action::Disabled,
         ] {
             let json = serde_json::to_string(&a).unwrap();

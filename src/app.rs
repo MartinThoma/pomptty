@@ -146,6 +146,10 @@ pub struct PompttyApp {
     /// The tab a rename dialog is open for, and its live edit buffer.
     rename_target: Option<TabId>,
     rename_buf: String,
+    /// The "Bookmarks: Create" dialog: the directory being bookmarked and the
+    /// live name buffer. `Some` while it's open.
+    bookmark_dir: Option<String>,
+    bookmark_name: String,
     /// Whether the "About pomptty" dialog is showing.
     about_open: bool,
     /// The last time the open-tabs session was checked against disk.
@@ -282,6 +286,8 @@ impl PompttyApp {
             omnibox: None,
             rename_target: None,
             rename_buf: String::new(),
+            bookmark_dir: None,
+            bookmark_name: String::new(),
             about_open: false,
             session_last_saved: Instant::now(),
             root_checked_at: Instant::now()
@@ -949,6 +955,112 @@ impl PompttyApp {
         ));
     }
 
+    /// Open the "Bookmarks: Create" dialog for the active tab's working
+    /// directory, seeding the name with its last path segment. A toast (not a
+    /// dialog) if the directory can't be determined.
+    fn open_bookmark_dialog(&mut self) {
+        let Some(cwd) = self.tabs[self.active].shell_cwd() else {
+            self.set_toast("Can't tell the current directory");
+            return;
+        };
+        self.bookmark_name = std::path::Path::new(&cwd)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "root".to_owned());
+        self.bookmark_dir = Some(cwd);
+    }
+
+    /// Draw the "Bookmarks: Create" dialog and, on save, write the new entry
+    /// into `config.bookmarks` and persist `config.json`.
+    fn show_bookmark_dialog(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.bookmark_dir.clone() else {
+            return;
+        };
+
+        let s = Surfaces::from_theme(&self.config.theme);
+        let mut save = false;
+        let mut cancel = false;
+        let vis = ctx.animate_bool_with_time(egui::Id::new("pomptty_bookmark_anim"), true, 0.11);
+        let shadow_alpha = if self.config.theme.is_dark() { 130 } else { 55 };
+        let frame = egui::Frame::new()
+            .fill(s.raised)
+            .stroke(egui::Stroke::new(1.0, s.border))
+            .corner_radius(12)
+            .inner_margin(egui::Margin::same(20))
+            .shadow(egui::Shadow {
+                offset: [0, 12],
+                blur: 34,
+                spread: 0,
+                color: egui::Color32::from_black_alpha(shadow_alpha),
+            });
+        let modal = egui::Modal::new(egui::Id::new("pomptty_bookmark"))
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.set_opacity(vis);
+                ui.set_width(360.0);
+                ui.label(
+                    egui::RichText::new("Bookmark this directory")
+                        .size(16.0)
+                        .strong(),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(crate::ui::util::collapse_home(&dir))
+                        .monospace()
+                        .size(12.0)
+                        .color(s.text_muted),
+                );
+                ui.add_space(12.0);
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.bookmark_name)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Name for the command palette"),
+                );
+                let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if !resp.has_focus() && !enter {
+                    resp.request_focus();
+                }
+                let name = self.bookmark_name.trim();
+                if !name.is_empty() && self.config.bookmarks.0.contains_key(name) {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("Replaces the existing “{name}”."))
+                            .size(11.0)
+                            .color(s.text_muted),
+                    );
+                }
+                ui.add_space(16.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let go = egui::Button::new(
+                        egui::RichText::new("Save").color(crate::ui::style::on_accent(s.accent)),
+                    )
+                    .fill(s.accent)
+                    .corner_radius(7);
+                    if (ui.add(go).clicked() || enter) && !name.is_empty() {
+                        save = true;
+                    }
+                    if ui
+                        .add(egui::Button::new("Cancel").fill(egui::Color32::TRANSPARENT))
+                        .clicked()
+                    {
+                        cancel = true;
+                    }
+                });
+            });
+
+        if save {
+            let name = self.bookmark_name.trim().to_owned();
+            self.bookmark_dir = None;
+            self.config.bookmarks.0.insert(name.clone(), dir);
+            match self.config.save(&self.config_path) {
+                Ok(()) => self.set_toast(format!("Bookmarked as “{name}”")),
+                Err(e) => self.set_toast(format!("Couldn't save the bookmark: {e:#}")),
+            }
+        } else if cancel || modal.should_close() {
+            self.bookmark_dir = None;
+        }
+    }
+
     /// Each `Action` paired with its bound shortcut, pre-formatted for
     /// display. Prefers the shortest chord when an action has several.
     fn action_shortcuts(&self) -> Vec<(Action, String)> {
@@ -1322,6 +1434,7 @@ impl PompttyApp {
             }
             Action::OpenScrollback => self.open_scrollback(),
             Action::AboutPomptty => self.about_open = true,
+            Action::BookmarkDir => self.open_bookmark_dialog(),
             // Inert here: handled by the terminal widget, or filtered out before
             // dispatch (see `Action::is_active` and `KeyBindings::compile`).
             Action::Copy | Action::Paste | Action::Disabled => {}
@@ -1385,6 +1498,7 @@ impl eframe::App for PompttyApp {
         if self.pending_close.is_none()
             && self.pending_paste.is_none()
             && !self.about_open
+            && self.bookmark_dir.is_none()
             && self.history_overlay.is_none()
             && self.rename_target.is_none()
             && self.tab_search.is_none()
@@ -1495,6 +1609,12 @@ impl eframe::App for PompttyApp {
             self.show_rename_dialog(&ctx);
         } else {
             ctx.animate_bool_with_time(egui::Id::new("pomptty_rename_anim"), false, 0.0);
+        }
+
+        if self.bookmark_dir.is_some() {
+            self.show_bookmark_dialog(&ctx);
+        } else {
+            ctx.animate_bool_with_time(egui::Id::new("pomptty_bookmark_anim"), false, 0.0);
         }
 
         if self.pending_paste.is_some() {
@@ -1628,6 +1748,7 @@ impl eframe::App for PompttyApp {
                         self.pending_close.is_none()
                             && self.pending_paste.is_none()
                             && !self.about_open
+                            && self.bookmark_dir.is_none()
                             && self.history_overlay.is_none()
                             && self.rename_target.is_none()
                             && self.tab_search.is_none()

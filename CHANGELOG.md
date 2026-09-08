@@ -11,7 +11,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 - Directory bookmarks: a `bookmarks` config map (`name → path`). Each entry
   shows in the command palette as `Jump to: <name>` and `cd`s the active tab
-  there; a leading `~` in the path is expanded to the home directory.
+  there; a leading `~` in the path is expanded to the home directory. The
+  palette's `Bookmarks: Create` saves the active tab's current directory
+  (prompting for a name) straight into `config.json`.
 
 ### Changed
 

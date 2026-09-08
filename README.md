@@ -42,7 +42,8 @@ but hasn't had a hands-on pass. A few features are still Linux/macOS-only — se
   switches tab, drops the command on the prompt, or `cd`s there.
 - **Directory bookmarks** — name the folders you keep going back to in the
   `bookmarks` config map (`"dl": "~/Downloads"`); each becomes `Jump to: dl` in
-  the palette, `cd`-ing the active tab there.
+  the palette, `cd`-ing the active tab there. `Bookmarks: Create` in the palette
+  adds the current directory without leaving the terminal.
 - **Tabs** — open, close, switch, drag-to-reorder; rename, duplicate, colour,
   and reopen-closed from the right-click menu; a fuzzy tab switcher
   (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>). A new tab starts in the
@@ -204,6 +205,7 @@ its current shortcut.
 | `window-maximize` / `window-restore` | — | also in the palette as "View: Maximize / Restore Window" |
 | `window-left-half` / `window-right-half` | — | un-maximize and tile the window to that half of the screen; "View: Move to Left / Right Half" |
 | `open-scrollback` | — | dump the active tab's scrollback to a temp file and open it in your default editor; "Terminal: Open Scrollback in Editor" |
+| `bookmark-dir` | — | save the active tab's directory to `bookmarks` (asks for a name); "Bookmarks: Create" |
 | `about` | — | show the version / repository / license dialog; "Help: About pomptty" |
 | `disabled` | — | suppresses a default binding |
 
@@ -290,7 +292,7 @@ config.
 | `theme` | A builtin name or an inline palette object (see below). |
 | `keybindings` | Map of chord → action (see [Keybindings](#keybindings)). |
 | `key_sends` | Map of chord → raw byte string / escape sequence sent to the shell (see [Keybindings](#keybindings)). |
-| `bookmarks` | Map of name → directory path (`{ "dl": "~/Downloads" }`). Each appears in the command palette as `Jump to: <name>` and `cd`s the active tab there. A leading `~` is expanded to your home directory. |
+| `bookmarks` | Map of name → directory path (`{ "dl": "~/Downloads" }`). Each appears in the command palette as `Jump to: <name>` and `cd`s the active tab there; a leading `~` is expanded to your home directory. `Bookmarks: Create` in the palette appends the active tab's current directory. |
 | `window` | `width` / `height` in logical pixels; `decorations`: `"custom"` (default) — frameless, pomptty's own tab strip is the title bar — or `"system"` to keep the OS title bar (use it if your WM handles a borderless window poorly); `opacity` (`0.05`–`1.0`, default `1.0`) — terminal-body translucency, **Wayland / macOS / Windows only** (ignored on X11); `background` — `{ "path": "…", "dim": 0.55, "vignette": 0.35 }` draws a PNG/JPEG behind the text. All take effect on restart. |
 | `history` | `enabled` (default `true`) — whether <kbd>Ctrl</kbd>+<kbd>R</kbd> opens the overlay (see [Shell integration](#shell-integration)); `max_results` (default `50`) — rows shown at once. |
 | `session` | `restore` (default `true`) — reopen the last run's tabs, directories and renames on launch; also stops pomptty recording them when `false`. Saved to `session.json` next to the history logs. |

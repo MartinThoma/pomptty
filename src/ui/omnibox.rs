@@ -50,6 +50,7 @@ const PALETTE_ACTIONS: &[(&str, Action)] = &[
         "Terminal: Open Scrollback in Editor",
         Action::OpenScrollback,
     ),
+    ("Bookmarks: Create", Action::BookmarkDir),
     ("Help: About pomptty", Action::AboutPomptty),
 ];
 
