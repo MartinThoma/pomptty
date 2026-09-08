@@ -179,11 +179,15 @@ Built on the M3 hook stream. Treat each prompt→command→output span as a unit
 
 ## M6 — browser-shaped workflow ★
 
-- [x] **omnibox / command palette** (`ctrl+shift+p`): one input, four ranked
-      sections — actions, tabs, history, recent directories — fuzzy-filtered
-      together; `Enter` acts (run the action, switch tab, insert the command,
-      `cd` there), `Ctrl+Enter` on a history row runs it. "Jump to a block" is
-      out until M5 exists.
+- [x] **omnibox / command palette** (`ctrl+shift+p`): one input, five ranked
+      sections — actions, directory bookmarks, tabs, history, recent
+      directories — fuzzy-filtered together; `Enter` acts (run the action,
+      jump to the bookmark, switch tab, insert the command, `cd` there),
+      `Ctrl+Enter` on a history row runs it. "Jump to a block" is out until
+      M5 exists.
+- [x] **directory bookmarks**: `bookmarks` config map (`name → path`, `~`
+      expanded), each surfaced in the palette as `Jump to: <name>` →
+      `cd`s the active tab (`Config::Bookmarks`, `OmniItem::Bookmark`)
 - [x] reopen closed tab (`ctrl+shift+t`: reopens the last closed tab in its old
       slot and directory, or opens a plain new tab when there's nothing to
       reopen), recently-closed list (right-click a tab → "Reopen closed")

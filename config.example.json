@@ -60,6 +60,10 @@
     "shift+pageup": "scroll-page-up"
   },
   "key_sends": {},
+  "bookmarks": {
+    "dl": "~/Downloads",
+    "cfg": "~/.config"
+  },
   "window": {
     "width": 900.0,
     "height": 560.0,

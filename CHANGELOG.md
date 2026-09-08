@@ -7,6 +7,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+### Added
+
+- Directory bookmarks: a `bookmarks` config map (`name → path`). Each entry
+  shows in the command palette as `Jump to: <name>` and `cd`s the active tab
+  there; a leading `~` in the path is expanded to the home directory.
+
 ### Changed
 
 - pomptty's own crate is now 100% safe Rust — the last `unsafe` blocks (the

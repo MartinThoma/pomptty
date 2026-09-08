@@ -944,6 +944,7 @@ impl PompttyApp {
             entries,
             active_id,
             dirs,
+            self.config.bookmarks.resolved(),
             self.action_shortcuts(),
         ));
     }

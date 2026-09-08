@@ -64,6 +64,13 @@ or an inline 18\-color palette object.
 .BR keybindings ", " key_sends
 Chord \(-> action, and chord \(-> raw bytes / escape sequence.
 .TP
+.B bookmarks
+Name \(-> directory path. Each appears in the command palette as
+.RB \(dq "Jump to: " name \(dq
+and changes the active tab's directory there; a leading
+.B ~
+is expanded to the home directory.
+.TP
 .B window
 .BR width ", " height ", " decorations
 .RB ( custom / system ),

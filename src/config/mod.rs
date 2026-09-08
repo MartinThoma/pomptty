@@ -3,6 +3,7 @@
 pub mod keybindings;
 pub mod theme;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -46,6 +47,10 @@ pub struct Config {
     /// Chords that send raw bytes / an escape sequence straight to the shell
     /// (`"alt+left": "b"`), instead of an app action.
     pub key_sends: KeySends,
+    /// Directory bookmarks: a name → path map. Each shows in the command
+    /// palette as `Jump to: <name>` and `cd`s the active tab there. A leading
+    /// `~` in the path is expanded to the home directory.
+    pub bookmarks: Bookmarks,
     /// Initial window size, and how the window frame is drawn.
     pub window: WindowConfig,
     /// The `Ctrl+R` command-history search.
@@ -62,6 +67,39 @@ pub struct Config {
     pub clipboard: ClipboardConfig,
     /// Safety indicators.
     pub security: SecurityConfig,
+}
+
+/// Directory bookmarks, `name → path`. Serialized transparently as a plain
+/// JSON object (`"bookmarks": { "dl": "~/Downloads" }`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Bookmarks(pub BTreeMap<String, String>);
+
+impl Bookmarks {
+    /// `(name, path)` pairs in name order, with a leading `~` expanded to the
+    /// home directory and blank names / paths dropped.
+    pub fn resolved(&self) -> Vec<(String, String)> {
+        let home = directories::BaseDirs::new();
+        let home = home.as_ref().map(|b| b.home_dir());
+        self.0
+            .iter()
+            .filter(|(name, path)| !name.trim().is_empty() && !path.trim().is_empty())
+            .map(|(name, path)| (name.clone(), expand_tilde(path, home)))
+            .collect()
+    }
+}
+
+/// Expand a leading `~` or `~/` to `home`. Anything else (including `~user`)
+/// is returned unchanged.
+fn expand_tilde(path: &str, home: Option<&Path>) -> String {
+    match (path.strip_prefix('~'), home) {
+        (Some(""), Some(home)) => home.to_string_lossy().into_owned(),
+        (Some(rest), Some(home)) if rest.starts_with('/') => home
+            .join(rest.trim_start_matches('/'))
+            .to_string_lossy()
+            .into_owned(),
+        _ => path.to_owned(),
+    }
 }
 
 /// Clipboard behaviour.
@@ -299,6 +337,7 @@ impl Default for Config {
             theme: ThemeConfig::default(),
             keybindings: KeyBindings::default(),
             key_sends: KeySends::default(),
+            bookmarks: Bookmarks::default(),
             window: WindowConfig::default(),
             history: HistoryConfig::default(),
             session: SessionConfig::default(),
@@ -396,6 +435,32 @@ mod tests {
         let cfg: Config = serde_json::from_str(r#"{ "font_size": 18.0 }"#).unwrap();
         assert_eq!(cfg.font_size, 18.0);
         assert_eq!(cfg.scrollback_lines, Config::default().scrollback_lines);
+    }
+
+    #[test]
+    fn bookmarks_parse_and_resolve() {
+        let cfg: Config = serde_json::from_str(
+            r#"{ "bookmarks": { "dl": "~/Downloads", "root": "/etc", "": "  ", "z": "" } }"#,
+        )
+        .unwrap();
+        // Blank name / path entries are dropped; the rest come back name-sorted.
+        let resolved = cfg.bookmarks.resolved();
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].0, "dl");
+        assert!(resolved[0].1.ends_with("/Downloads") && !resolved[0].1.starts_with('~'));
+        assert_eq!(resolved[1], ("root".to_owned(), "/etc".to_owned()));
+    }
+
+    #[test]
+    fn expand_tilde_only_touches_a_leading_tilde() {
+        let home = Path::new("/home/x");
+        assert_eq!(expand_tilde("~", Some(home)), "/home/x");
+        assert_eq!(expand_tilde("~/proj/a", Some(home)), "/home/x/proj/a");
+        assert_eq!(expand_tilde("/abs/path", Some(home)), "/abs/path");
+        assert_eq!(expand_tilde("rel/path", Some(home)), "rel/path");
+        assert_eq!(expand_tilde("~user/x", Some(home)), "~user/x");
+        assert_eq!(expand_tilde("a/~/b", Some(home)), "a/~/b");
+        assert_eq!(expand_tilde("~/x", None), "~/x", "no home → unchanged");
     }
 
     #[test]

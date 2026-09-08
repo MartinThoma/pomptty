@@ -1,6 +1,6 @@
-//! The command palette (`Ctrl+Shift+P`): one input over four sources —
-//! actions, tabs, history, and recent directories — grouped and ranked,
-//! `Enter` to act. The browser-omnibox counterpart to
+//! The command palette (`Ctrl+Shift+P`): one input over five sources —
+//! actions, directory bookmarks, tabs, history, and recent directories —
+//! grouped and ranked, `Enter` to act. The browser-omnibox counterpart to
 //! [`crate::ui::history_overlay`] (history alone) and
 //! [`crate::ui::tab_search`] (tabs alone).
 
@@ -73,6 +73,11 @@ enum OmniItem {
         /// The bound shortcut, pre-formatted for display (`"Ctrl+W"`).
         shortcut: Option<String>,
     },
+    /// A `config.bookmarks` entry: `cd` to `path`, shown as `Jump to: <name>`.
+    Bookmark {
+        name: String,
+        path: String,
+    },
     Tab {
         id: TabId,
         title: String,
@@ -86,6 +91,7 @@ impl OmniItem {
     fn section(&self) -> &'static str {
         match self {
             OmniItem::Action { .. } => "Actions",
+            OmniItem::Bookmark { .. } => "Bookmarks",
             OmniItem::Tab { .. } => "Tabs",
             OmniItem::History(_) => "History",
             OmniItem::Dir(_) => "Directories",
@@ -97,6 +103,7 @@ impl OmniItem {
     fn act(&self, run: bool) -> OmniboxOutcome {
         match self {
             OmniItem::Action { action, .. } => OmniboxOutcome::RunAction(*action),
+            OmniItem::Bookmark { path, .. } => OmniboxOutcome::ChangeDir(path.clone()),
             OmniItem::Tab { id, .. } => OmniboxOutcome::SelectTab(*id),
             OmniItem::History(hit) if run => OmniboxOutcome::RunCommand(hit.command.clone()),
             OmniItem::History(hit) => OmniboxOutcome::InsertCommand(hit.command.clone()),
@@ -115,6 +122,8 @@ pub struct OmniboxOverlay {
     /// Recent distinct directories from the history log, most-recent first —
     /// the active tab's own directory already filtered out by the caller.
     dirs: Vec<String>,
+    /// `config.bookmarks`, `(name, resolved path)`, in name order.
+    bookmarks: Vec<(String, String)>,
     /// Action → its shortcut, pre-formatted (`"Ctrl+Shift+T"`), from the live
     /// config. Small (~25 entries); looked up by linear scan.
     shortcuts: Vec<(Action, String)>,
@@ -125,6 +134,7 @@ impl OmniboxOverlay {
         tabs: Vec<TabEntry>,
         active_tab: TabId,
         dirs: Vec<String>,
+        bookmarks: Vec<(String, String)>,
         shortcuts: Vec<(Action, String)>,
     ) -> Self {
         Self {
@@ -135,6 +145,7 @@ impl OmniboxOverlay {
             tabs,
             active_tab,
             dirs,
+            bookmarks,
             shortcuts,
         }
     }
@@ -146,7 +157,7 @@ impl OmniboxOverlay {
             .map(|(_, s)| s.clone())
     }
 
-    /// The four sections, ranked and concatenated, empty ones skipped.
+    /// The five sections, ranked and concatenated, empty ones skipped.
     fn build_items(&self, history: &LogStore) -> Vec<OmniItem> {
         let query = self.query.trim();
         let mut matcher = Matcher::new(nucleo_matcher::Config::DEFAULT);
@@ -158,6 +169,14 @@ impl OmniboxOverlay {
                 action,
                 label,
                 shortcut: self.shortcut_for(action),
+            });
+        }
+        for (name, path) in rank(&pattern, &mut matcher, &self.bookmarks, |(name, path)| {
+            format!("Jump to: {name} {path}")
+        }) {
+            items.push(OmniItem::Bookmark {
+                name: name.clone(),
+                path: path.clone(),
             });
         }
         for entry in rank(&pattern, &mut matcher, &self.tabs, |e| {
@@ -364,7 +383,7 @@ fn draw_row(
 ) -> egui::Response {
     let two_line = matches!(
         item,
-        OmniItem::History(_) | OmniItem::Tab { cwd: Some(_), .. }
+        OmniItem::History(_) | OmniItem::Tab { cwd: Some(_), .. } | OmniItem::Bookmark { .. }
     );
     let h = if two_line { ROW_TWO_LINE } else { ROW_ONE_LINE };
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
@@ -406,6 +425,20 @@ fn draw_row(
                     s.text_muted,
                 );
             }
+        }
+        OmniItem::Bookmark { name, path } => {
+            let g = p.layout_no_wrap(
+                format!("Jump to: {name}"),
+                FontId::proportional(13.0),
+                s.text,
+            );
+            p.galley(pos2(rect.left() + 14.0, text_y), g, s.text);
+            let cg = p.layout_no_wrap(collapse_home(path), FontId::monospace(10.5), s.text_faint);
+            p.galley(
+                pos2(rect.left() + 14.0, rect.top() + 22.0),
+                cg,
+                s.text_faint,
+            );
         }
         OmniItem::Tab { id, title, cwd } => {
             if *id == active_tab {
